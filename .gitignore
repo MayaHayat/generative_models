@@ -1,0 +1,14 @@
+# excluded: large third-party dataset clone, not "the code"
+covid-chestxray-dataset/
+
+# excluded: separate untouched project with its own local edits
+medSynthesisV1-generative_models/
+
+# generated data / run artifacts across all sub-projects
+**/data/
+**/runs/
+**/_smoketest_*/
+
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

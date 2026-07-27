@@ -1,0 +1,5 @@
+data/
+runs/
+_smoketest_*/
+__pycache__/
+*.pyc
