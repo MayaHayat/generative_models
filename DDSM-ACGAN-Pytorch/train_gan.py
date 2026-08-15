@@ -39,6 +39,23 @@ def train(args):
     bce = nn.BCEWithLogitsLoss()
     ce = nn.CrossEntropyLoss()
 
+    start_epoch = 0
+    if args.resume:
+        ckpt = torch.load(args.resume, map_location=device)
+        netG.load_state_dict(ckpt["generator"])
+        netD.load_state_dict(ckpt["discriminator"])
+        if "opt_g" in ckpt:
+            opt_g.load_state_dict(ckpt["opt_g"])
+            opt_d.load_state_dict(ckpt["opt_d"])
+        else:
+            print("warning: checkpoint has no optimizer state (pre-resume-support checkpoint) -- "
+                  "Adam state restarts fresh, weights still resume correctly.")
+        start_epoch = ckpt["epoch"]
+        print(f"resumed from {args.resume} at epoch {start_epoch}")
+        if start_epoch >= args.epochs:
+            raise SystemExit(f"--epochs {args.epochs} <= checkpoint's epoch {start_epoch}; "
+                              f"nothing to do, pass a larger --epochs to keep training.")
+
     out_dir = Path(args.out_dir)
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
     (out_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
@@ -46,7 +63,7 @@ def train(args):
     eval_z = netG.sample_z(16, device=device)
     eval_labels = torch.arange(16, device=device) % 2
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         g_loss_sum = d_loss_sum = 0.0
         for real_imgs, real_labels in loader:
             real_imgs = real_imgs.to(device)
@@ -91,11 +108,13 @@ def train(args):
 
         if (epoch + 1) % args.checkpoint_every == 0 or epoch == args.epochs - 1:
             torch.save(
-                {"generator": netG.state_dict(), "discriminator": netD.state_dict(), "epoch": epoch + 1},
+                {"generator": netG.state_dict(), "discriminator": netD.state_dict(),
+                 "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": epoch + 1},
                 out_dir / "checkpoints" / f"ddsm_acgan_epoch{epoch+1:04d}.pt",
             )
 
-    torch.save({"generator": netG.state_dict(), "discriminator": netD.state_dict(), "epoch": args.epochs},
+    torch.save({"generator": netG.state_dict(), "discriminator": netD.state_dict(),
+                "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": args.epochs},
                out_dir / "checkpoints" / "ddsm_acgan_final.pt")
     print(f"done. final checkpoint: {out_dir / 'checkpoints' / 'ddsm_acgan_final.pt'}")
 
@@ -111,5 +130,9 @@ if __name__ == "__main__":
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--sample-every", type=int, default=10)
     ap.add_argument("--checkpoint-every", type=int, default=100)
+    ap.add_argument("--resume", default=None,
+                     help="Path to a checkpoint (e.g. runs/gan/checkpoints/ddsm_acgan_epoch0050.pt) "
+                          "to continue training from. --epochs is the new *total* epoch target, "
+                          "not additional epochs on top.")
     ap.add_argument("--cpu", action="store_true")
     train(ap.parse_args())

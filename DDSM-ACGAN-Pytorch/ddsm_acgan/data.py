@@ -154,13 +154,31 @@ class ROIDataset(Dataset):
 
     def __getitem__(self, idx):
         path, label = self.items[idx]
-        img = Image.open(path).convert("RGB").resize(
+        img = _load_as_uint8_grayscale(path).convert("RGB").resize(
             (self.image_size, self.image_size), Image.LANCZOS
         )
         arr = torch.from_numpy(np.array(img, dtype="float32")).permute(2, 0, 1) / 255.0
         if self.value_range == "tanh":
             arr = arr * 2.0 - 1.0
         return arr, label
+
+
+def _load_as_uint8_grayscale(path: Path) -> Image.Image:
+    """CBIS-DDSM ROI patches are commonly stored as 16-bit grayscale PNGs
+    (mode 'I' / 'I;16', e.g. uint16 values in [20745, 65535], not [0, 255]).
+    PIL's Image.convert('RGB') does not rescale 'I'/'I;16' images -- it
+    truncates to 8 bits, which for values this large collapses almost every
+    pixel to near-white with sharp artifacts wherever the low byte happens
+    to wrap low. Per-image min-max normalize to uint8 first so the actual
+    tissue contrast survives the conversion."""
+    img = Image.open(path)
+    if img.mode in ("I", "I;16", "I;16B", "I;16L", "I;16N") or np.array(img).dtype != np.uint8:
+        arr = np.array(img).astype(np.float32)
+        lo, hi = arr.min(), arr.max()
+        arr = (arr - lo) / (hi - lo) if hi > lo else np.zeros_like(arr)
+        arr = (arr * 255.0).clip(0, 255).astype(np.uint8)
+        img = Image.fromarray(arr, mode="L")
+    return img.convert("L")
 
 
 def make_synthetic_items(root: str) -> List[Tuple[Path, int]]:
