@@ -56,6 +56,12 @@ def train(args):
             raise SystemExit(f"--epochs {args.epochs} <= checkpoint's epoch {start_epoch}; "
                               f"nothing to do, pass a larger --epochs to keep training.")
 
+    wandb = None
+    if args.wandb:
+        import wandb
+        wandb.init(project=args.wandb_project, name=args.wandb_run_name,
+                   config=vars(args), resume="allow" if args.resume else None)
+
     out_dir = Path(args.out_dir)
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
     (out_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
@@ -96,15 +102,21 @@ def train(args):
             g_loss_sum += g_loss.item()
 
         n_batches = len(loader)
-        print(f"epoch {epoch+1}/{args.epochs}  D_loss={d_loss_sum/n_batches:.4f}  G_loss={g_loss_sum/n_batches:.4f}")
+        d_loss_avg = d_loss_sum / n_batches
+        g_loss_avg = g_loss_sum / n_batches
+        print(f"epoch {epoch+1}/{args.epochs}  D_loss={d_loss_avg:.4f}  G_loss={g_loss_avg:.4f}")
+        if wandb:
+            wandb.log({"epoch": epoch + 1, "d_loss": d_loss_avg, "g_loss": g_loss_avg}, step=epoch + 1)
 
         if (epoch + 1) % args.sample_every == 0 or epoch == args.epochs - 1:
             netG.eval()
             with torch.no_grad():
                 samples = netG(eval_labels, eval_z)
             netG.train()
-            vutils.save_image(samples, out_dir / "samples" / f"epoch_{epoch+1:04d}.png",
-                               nrow=4, normalize=True, value_range=(-1, 1))
+            sample_path = out_dir / "samples" / f"epoch_{epoch+1:04d}.png"
+            vutils.save_image(samples, sample_path, nrow=4, normalize=True, value_range=(-1, 1))
+            if wandb:
+                wandb.log({"samples": wandb.Image(str(sample_path))}, step=epoch + 1)
 
         if (epoch + 1) % args.checkpoint_every == 0 or epoch == args.epochs - 1:
             torch.save(
@@ -117,6 +129,8 @@ def train(args):
                 "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": args.epochs},
                out_dir / "checkpoints" / "ddsm_acgan_final.pt")
     print(f"done. final checkpoint: {out_dir / 'checkpoints' / 'ddsm_acgan_final.pt'}")
+    if wandb:
+        wandb.finish()
 
 
 if __name__ == "__main__":
@@ -135,4 +149,7 @@ if __name__ == "__main__":
                           "to continue training from. --epochs is the new *total* epoch target, "
                           "not additional epochs on top.")
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--wandb", action="store_true", help="Log to Weights & Biases.")
+    ap.add_argument("--wandb-project", default="ddsm-acgan")
+    ap.add_argument("--wandb-run-name", default=None)
     train(ap.parse_args())

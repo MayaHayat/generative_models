@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+from sklearn.metrics import precision_recall_fscore_support
 from torch.utils.data import ConcatDataset, DataLoader
 
 from ddsm_acgan.data import CLASS_NAMES, ROIDataset, make_synthetic_items, read_manifest
@@ -54,6 +55,12 @@ def predict(model, loader, device):
 def run(args):
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
     print(f"device: {device}  mode: {args.mode}")
+
+    wandb = None
+    if args.wandb:
+        import wandb
+        wandb.init(project=args.wandb_project, name=args.wandb_run_name or f"cnn-{args.mode}",
+                   config=vars(args), group=args.wandb_group)
 
     train_items = read_manifest(args.manifest, "train")
     test_items = read_manifest(args.manifest, "test")
@@ -99,7 +106,10 @@ def run(args):
             running_loss += loss.item() * imgs.size(0)
             correct += (logits.argmax(1) == labels).sum().item()
             total += imgs.size(0)
-        print(f"epoch {epoch+1}/{args.epochs}  loss={running_loss/total:.4f}  train_acc={correct/total:.2%}")
+        train_loss, train_acc = running_loss / total, correct / total
+        print(f"epoch {epoch+1}/{args.epochs}  loss={train_loss:.4f}  train_acc={train_acc:.2%}")
+        if wandb:
+            wandb.log({"epoch": epoch + 1, "train_loss": train_loss, "train_acc": train_acc}, step=epoch + 1)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -109,11 +119,24 @@ def run(args):
     print("\n" + table)
     (out_dir / "metrics.txt").write_text(table, encoding="utf-8")
 
+    cm_path = out_dir / "confusion_matrix.png"
     plot_confusion_matrix(
         labels, preds, CLASS_NAMES,
         title=f"CNN-{args.mode.upper()} confusion matrix",
-        out_path=str(out_dir / "confusion_matrix.png"),
+        out_path=str(cm_path),
     )
+
+    if wandb:
+        accuracy = float((labels == preds).mean())
+        precision, recall, f1, support = precision_recall_fscore_support(
+            labels, preds, labels=list(range(len(CLASS_NAMES))), zero_division=0
+        )
+        test_metrics = {"test_accuracy": accuracy, "confusion_matrix": wandb.Image(str(cm_path))}
+        for i, name in enumerate(CLASS_NAMES):
+            test_metrics[f"test_precision_{name}"] = precision[i]
+            test_metrics[f"test_recall_{name}"] = recall[i]
+            test_metrics[f"test_f1_{name}"] = f1[i]
+        wandb.log(test_metrics)
 
     if synth_ds is not None:
         real_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=False)
@@ -124,10 +147,15 @@ def run(args):
         all_feats = np.concatenate([real_feats, synth_feats])
         all_labels = np.concatenate([real_labels, synth_labels])
         sources = ["real"] * len(real_labels) + ["synthetic"] * len(synth_labels)
-        plot_pca(all_feats, all_labels, sources, CLASS_NAMES, out_path=str(out_dir / "pca.png"))
+        pca_path = out_dir / "pca.png"
+        plot_pca(all_feats, all_labels, sources, CLASS_NAMES, out_path=str(pca_path))
+        if wandb:
+            wandb.log({"pca": wandb.Image(str(pca_path))})
 
     torch.save(model.state_dict(), out_dir / "classifier.pt")
     print(f"\ndone. artifacts written to {out_dir}")
+    if wandb:
+        wandb.finish()
 
 
 if __name__ == "__main__":
@@ -141,4 +169,9 @@ if __name__ == "__main__":
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--wandb", action="store_true", help="Log to Weights & Biases.")
+    ap.add_argument("--wandb-project", default="ddsm-acgan")
+    ap.add_argument("--wandb-run-name", default=None, help="Defaults to 'cnn-<mode>'.")
+    ap.add_argument("--wandb-group", default=None,
+                     help="Group AD/SA runs together in the W&B UI, e.g. --wandb-group exp1.")
     run(ap.parse_args())
