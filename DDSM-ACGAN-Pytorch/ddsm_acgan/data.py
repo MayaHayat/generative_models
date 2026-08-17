@@ -137,12 +137,15 @@ def read_manifest(manifest_path: str, split: str) -> List[Tuple[Path, int]]:
 
 
 class ROIDataset(Dataset):
-    """Wraps a list of (path, label) pairs. ROI patches are grayscale PNGs;
-    converted to RGB (channel-replicated) for the VGG16-based classifier and
-    3-channel generator/discriminator. `value_range` picks pixel scaling:
-    GAN training normalizes to [-1, 1], the classifier to [0, 1]."""
+    """Wraps a list of (path, label) pairs. ROI patches are grayscale PNGs of
+    any native size/bit-depth (resized to `image_size` and channel-replicated
+    to RGB here, regardless of source resolution -- e.g. DDSM's native
+    384x384 works fine and gets downsized like anything else). `value_range`
+    picks pixel scaling: GAN training normalizes to [-1, 1], the classifier
+    to [0, 1]. Default `image_size=112` matches the generator/discriminator
+    architecture in models.py -- don't raise it without redesigning those."""
 
-    def __init__(self, items: Sequence[Tuple[Path, int]], image_size: int = 384,
+    def __init__(self, items: Sequence[Tuple[Path, int]], image_size: int = 112,
                  value_range: str = "tanh"):
         assert value_range in ("tanh", "unit")
         self.items = list(items)
