@@ -5,7 +5,7 @@ Figs. 1-3) unchanged -- it's a generic conditional-GAN + frozen-VGG16-head
 setup that isn't tied to chest X-rays. Only the data pipeline (ddsm_acgan/data.py)
 is domain-specific.
 
-Generator:  G(c, z) -> 112x112x3 image
+Generator:  G(c, z) -> 384x384x3 image
 Discriminator: D(x) -> (validity logit, class logits)   [AC-GAN, two heads]
 Classifier: frozen VGG16 backbone + small trainable head.
 """
@@ -15,12 +15,12 @@ from torchvision.models import vgg16, VGG16_Weights
 
 Z_DIM = 100
 EMBED_DIM = 50
-IMAGE_SIZE = 112
+IMAGE_SIZE = 384
 NUM_CLASSES = 2  # benign, malignant
 
 
 class Generator(nn.Module):
-    """AC-GAN generator: label + noise -> 112x112x3 image in [-1, 1]."""
+    """AC-GAN generator: label + noise -> 384x384x2 image in [-1, 1]."""
 
     def __init__(self, num_classes: int = NUM_CLASSES, z_dim: int = Z_DIM, embed_dim: int = EMBED_DIM):
         super().__init__()
@@ -50,7 +50,7 @@ class Generator(nn.Module):
             *up_block(1024 + 1, 512),
             *up_block(512, 256),
             *up_block(256, 128),
-            *up_block(128, 3, final=True),
+            *up_block(128, 2, final=True),
         )
 
     def forward(self, labels: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
@@ -67,7 +67,7 @@ class Discriminator(nn.Module):
     """AC-GAN discriminator: image -> (validity logit, class logits).
     Outputs raw logits; use BCEWithLogitsLoss / CrossEntropyLoss for training."""
 
-    def __init__(self, num_classes: int = NUM_CLASSES, in_ch: int = 3):
+    def __init__(self, num_classes: int = NUM_CLASSES, in_ch: int = 2):
         super().__init__()
 
         def down_block(in_c, out_c, stride):
