@@ -142,7 +142,7 @@ class ROIDataset(Dataset):
     3-channel generator/discriminator. `value_range` picks pixel scaling:
     GAN training normalizes to [-1, 1], the classifier to [0, 1]."""
 
-    def __init__(self, items: Sequence[Tuple[Path, int]], image_size: int = 112,
+    def __init__(self, items: Sequence[Tuple[Path, int]], image_size: int = 384,
                  value_range: str = "tanh"):
         assert value_range in ("tanh", "unit")
         self.items = list(items)
