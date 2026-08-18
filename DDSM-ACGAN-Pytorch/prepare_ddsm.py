@@ -1,15 +1,19 @@
 """
-Join pre-extracted CBIS-DDSM ROI patches against the four case-description
-CSVs to build data/manifest.csv (path, label, split), using each CSV's own
+Join pre-extracted CBIS-DDSM ROI patches against the case-description CSVs
+to build data/manifest.csv (path, label, split), using each CSV's own
 train/test assignment.
+
+Pass the mass CSVs, the calc CSVs, or both -- e.g. to restrict to mass-only:
 
     python prepare_ddsm.py \
         --roi-dir /content/ddsm_rois/rois \
         --mass-train-csv /content/drive/MyDrive/Thesis/tabular-dataset/mass_case_description_train_set.csv \
         --mass-test-csv  /content/drive/MyDrive/Thesis/tabular-dataset/mass_case_description_test_set.csv \
-        --calc-train-csv /content/drive/MyDrive/Thesis/tabular-dataset/calc_case_description_train_set.csv \
-        --calc-test-csv  /content/drive/MyDrive/Thesis/tabular-dataset/calc_case_description_test_set.csv \
         --out-dir data
+
+(omit --calc-train-csv/--calc-test-csv entirely -- calcification ROIs are
+then skipped rather than reported as unmatched.) Pass all four to include
+both abnormality types.
 
 Prints a match-rate report -- if the match rate is low, the CSV's column
 names or the ROI filenames likely don't follow the standard CBIS-DDSM
@@ -26,20 +30,23 @@ from ddsm_acgan.data import build_ddsm_manifest, write_manifest
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--roi-dir", required=True, help="Folder of P_<id>_<side>_<view>_<type>_<n>.png ROI patches.")
-    ap.add_argument("--mass-train-csv", required=True)
-    ap.add_argument("--mass-test-csv", required=True)
-    ap.add_argument("--calc-train-csv", required=True)
-    ap.add_argument("--calc-test-csv", required=True)
+    ap.add_argument("--mass-train-csv", default=None)
+    ap.add_argument("--mass-test-csv", default=None)
+    ap.add_argument("--calc-train-csv", default=None)
+    ap.add_argument("--calc-test-csv", default=None)
     ap.add_argument("--out-dir", default="data")
     args = ap.parse_args()
 
-    matched, unmatched = build_ddsm_manifest(
-        roi_dir=args.roi_dir,
-        mass_train_csv=args.mass_train_csv,
-        mass_test_csv=args.mass_test_csv,
-        calc_train_csv=args.calc_train_csv,
-        calc_test_csv=args.calc_test_csv,
-    )
+    try:
+        matched, unmatched = build_ddsm_manifest(
+            roi_dir=args.roi_dir,
+            mass_train_csv=args.mass_train_csv,
+            mass_test_csv=args.mass_test_csv,
+            calc_train_csv=args.calc_train_csv,
+            calc_test_csv=args.calc_test_csv,
+        )
+    except ValueError as e:
+        raise SystemExit(str(e))
 
     total = len(matched) + len(unmatched)
     match_rate = len(matched) / total if total else 0.0

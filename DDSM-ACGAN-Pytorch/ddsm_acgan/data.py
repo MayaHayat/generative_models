@@ -48,6 +48,7 @@ def parse_roi_filename(path: Path) -> Optional[dict]:
     return {
         "key": f"{patient_id}_{side.upper()}_{view.upper()}_{abn_type.lower()}_{int(abn_id)}",
         "patient_id": patient_id,
+        "abnormality_type": abn_type.lower(),
     }
 
 
@@ -86,20 +87,35 @@ def load_case_description_csv(csv_path: str, split: str) -> Dict[str, Tuple[int,
 
 def build_ddsm_manifest(
     roi_dir: str,
-    mass_train_csv: str,
-    mass_test_csv: str,
-    calc_train_csv: str,
-    calc_test_csv: str,
+    mass_train_csv: Optional[str] = None,
+    mass_test_csv: Optional[str] = None,
+    calc_train_csv: Optional[str] = None,
+    calc_test_csv: Optional[str] = None,
 ) -> Tuple[List[Tuple[Path, int, str]], List[Path]]:
-    """Join every ROI PNG in roi_dir against the four CSVs by
-    (patient, side, view, abnormality type, abnormality id).
+    """Join every ROI PNG in roi_dir against the given CSVs by
+    (patient, side, view, abnormality type, abnormality id). Pass only the
+    mass_*/calc_* pair for the abnormality type(s) you want -- e.g. omit
+    calc_train_csv/calc_test_csv entirely to restrict to mass ROIs only.
+    Files of an abnormality type you didn't provide CSVs for are skipped
+    (not scanned/counted as unmatched) rather than cluttering the report.
     Returns (matched [(path, label, split)], unmatched [path])."""
+    allowed_types = set()
     lookup: Dict[str, Tuple[int, str]] = {}
-    for csv_path, split in [
-        (mass_train_csv, "train"), (mass_test_csv, "test"),
-        (calc_train_csv, "train"), (calc_test_csv, "test"),
-    ]:
-        lookup.update(load_case_description_csv(csv_path, split))
+    if mass_train_csv or mass_test_csv:
+        if not (mass_train_csv and mass_test_csv):
+            raise ValueError("pass both --mass-train-csv and --mass-test-csv together, or neither")
+        lookup.update(load_case_description_csv(mass_train_csv, "train"))
+        lookup.update(load_case_description_csv(mass_test_csv, "test"))
+        allowed_types.add("mass")
+    if calc_train_csv or calc_test_csv:
+        if not (calc_train_csv and calc_test_csv):
+            raise ValueError("pass both --calc-train-csv and --calc-test-csv together, or neither")
+        lookup.update(load_case_description_csv(calc_train_csv, "train"))
+        lookup.update(load_case_description_csv(calc_test_csv, "test"))
+        allowed_types.add("calcification")
+    if not allowed_types:
+        raise ValueError("pass at least one CSV pair: --mass-train-csv/--mass-test-csv and/or "
+                          "--calc-train-csv/--calc-test-csv")
 
     matched: List[Tuple[Path, int, str]] = []
     unmatched: List[Path] = []
@@ -108,6 +124,8 @@ def build_ddsm_manifest(
         if parsed is None:
             unmatched.append(path)
             continue
+        if parsed["abnormality_type"] not in allowed_types:
+            continue  # not an abnormality type we have labels for -- silently skip, not "unmatched"
         entry = lookup.get(parsed["key"])
         if entry is None:
             unmatched.append(path)
