@@ -8,6 +8,20 @@ to augment a small COVID-19 dataset, plus the VGG16-based CNN it's used to impro
 The paper reports **85% → 95% accuracy** on COVID-19 detection when a CNN trained on real data
 alone (CNN-AD) is retrained on real + CovidGAN-synthesized data (CNN-SA).
 
+> **Reproducibility note.** We could not find a published, direct reproduction of this +10-point
+> claim. The closest independent test is Fedoruk et al., ["Performance of GAN-based augmentation
+> for deep learning COVID-19 image classification"](https://arxiv.org/abs/2304.09067)
+> (AIP Conference Proceedings, 2023; follow-up:
+> [arXiv:2401.14705](https://arxiv.org/abs/2401.14705)), which cites CovidGAN's 85%→95% result as
+> its benchmark and tests the same claim on a large modern COVID-19 CXR dataset (~21K images). They
+> find GAN augmentation does **not** reliably help — their best model (EfficientNet-B0) reached
+> 90.2% with simple class balancing and *dropped* to 84.1% with GAN augmentation added — and
+> conclude that dataset size, not augmentation, is the dominant driver of accuracy: GAN-based
+> augmentation "underperforms in the case of smaller datasets." That matches what this
+> reconstruction independently found (see the classifier results below): once trained on a larger,
+> cleaner modern dataset, the baseline CNN-AD already scores well above the paper's reported 85%,
+> leaving little headroom for augmentation to fill.
+
 ## Architecture
 
 - **Generator** — label (Embedding→Dense→7×7×1) concatenated with noise (Dense→ReLU→7×7×1024),
