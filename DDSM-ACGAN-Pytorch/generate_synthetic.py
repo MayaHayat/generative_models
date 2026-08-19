@@ -13,11 +13,12 @@ import torchvision.utils as vutils
 
 from ddsm_acgan.data import BENIGN_LABEL, MALIGNANT_LABEL
 from ddsm_acgan.models import Generator
+from ddsm_acgan.models_improved import ImprovedGenerator
 
 
 def generate(args):
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
-    netG = Generator().to(device)
+    netG = (ImprovedGenerator() if args.improved else Generator()).to(device)
     ckpt = torch.load(args.checkpoint, map_location=device)
     netG.load_state_dict(ckpt["generator"])
     netG.eval()
@@ -48,4 +49,7 @@ if __name__ == "__main__":
     ap.add_argument("--n-malignant", type=int, default=600)
     ap.add_argument("--batch-size", type=int, default=64)
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--improved", action="store_true",
+                     help="Load the Stage 2 improved generator architecture -- must match how the "
+                          "checkpoint was trained (--improved on train_gan.py).")
     generate(ap.parse_args())

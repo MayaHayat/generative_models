@@ -18,11 +18,12 @@ from torch.utils.data import DataLoader
 
 from ddsm_acgan.data import ROIDataset, read_manifest
 from ddsm_acgan.models import Discriminator, Generator, count_params
+from ddsm_acgan.models_improved import ImprovedDiscriminator, ImprovedGenerator
 
 
 def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
-    print(f"device: {device}")
+    print(f"device: {device}  architecture: {'improved' if args.improved else 'baseline'}")
 
     train_items = read_manifest(args.manifest, "train")
     dataset = ROIDataset(train_items, image_size=112, value_range="tanh")
@@ -30,8 +31,12 @@ def train(args):
                          num_workers=args.workers, drop_last=True)
     print(f"training images: {len(dataset)}")
 
-    netG = Generator().to(device)
-    netD = Discriminator().to(device)
+    if args.improved:
+        netG = ImprovedGenerator().to(device)
+        netD = ImprovedDiscriminator().to(device)
+    else:
+        netG = Generator().to(device)
+        netD = Discriminator().to(device)
     print(f"G params: {count_params(netG):,}  D params: {count_params(netD):,}")
 
     opt_g = torch.optim.Adam(netG.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
@@ -147,7 +152,13 @@ if __name__ == "__main__":
     ap.add_argument("--resume", default=None,
                      help="Path to a checkpoint (e.g. runs/gan/checkpoints/ddsm_acgan_epoch0050.pt) "
                           "to continue training from. --epochs is the new *total* epoch target, "
-                          "not additional epochs on top.")
+                          "not additional epochs on top. Must match --improved (baseline and "
+                          "improved checkpoints are not interchangeable -- different layer shapes).")
+    ap.add_argument("--improved", action="store_true",
+                     help="Use the Stage 2 architecture (ddsm_acgan/models_improved.py): spectral-norm "
+                          "discriminator + kernel=4/stride=2 generator upsampling, instead of the "
+                          "baseline paper-faithful architecture. Use a separate --out-dir from your "
+                          "baseline runs so checkpoints/samples don't mix.")
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("--wandb", action="store_true", help="Log to Weights & Biases.")
     ap.add_argument("--wandb-project", default="ddsm-acgan")
