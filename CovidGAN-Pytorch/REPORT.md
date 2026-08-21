@@ -289,14 +289,17 @@ without the COVID-CXR drift confound, rather than on this task.)
 
 ### 5.2 Stage 2 validation task (CBIS-DDSM, benign vs. malignant)
 
-Same architecture pair (baseline vs. `--improved`), same classifier, evaluated on a held-out real
-CBIS-DDSM test split (mass-type ROIs, 231 benign / 147 malignant):
+Same architecture pair (baseline vs. `--improved`), same classifier, same synthetic composition
+(**300 malignant / 300 benign** synthetic images in every SA run below — confirmed matched, so the
+differences are attributable to the GAN architecture/training duration, not synthetic class mix),
+evaluated on a held-out real CBIS-DDSM test split (mass-type ROIs, 231 benign / 147 malignant):
 
 | | Accuracy | Malignant recall | Benign recall | Macro-F1 |
 |---|---|---|---|---|
 | CNN-AD (real only) | 64.02% | 0.64 | 0.64 | 0.63 |
 | CNN-SA, baseline GAN architecture | 63.23% | 0.65 | 0.62 | — |
-| CNN-SA, **improved GAN architecture** | **66.93%** | 0.52 | 0.76 | 0.64 |
+| CNN-SA, improved GAN architecture, 300 epochs | **66.93%** | 0.52 | 0.76 | 0.65 |
+| CNN-SA, improved GAN architecture, 600 epochs | 65.08% | 0.61 | 0.68 | 0.64 |
 
 Two additional, non-classification signals support the architecture change independent of the table above:
 
@@ -313,12 +316,17 @@ Two additional, non-classification signals support the architecture change indep
   classifier (the mechanism identified in §3.6/§8.4 of the reconstruction findings for why a bad GAN
   doesn't visibly break CNN-SA on the frozen-backbone classifier).
 
-**Caveat carried over honestly:** the CNN-SA accuracy improvement (63.23% → 66.93%) has one unresolved
-confound — the synthetic class mix (`--n-benign`/`--n-malignant` ratio) used for the two SA runs being
-compared was not confirmed identical, so part of the gap could reflect a different synthetic mix rather
-than architecture quality alone. The training-stability and PCA evidence do not share this confound (they
-compare the same synthetic quantities). A matched-mix rerun is planned to close this gap before treating
-the classification number as a fully clean result.
+**Reading the classification result honestly:** with synthetic mix now confirmed matched throughout, the
+improved architecture at 300 epochs gives a genuine, architecture-attributable accuracy improvement over
+the baseline architecture (63.23% → 66.93%, +3.7 points). But training the improved architecture further
+(300→600 epochs) does not extend that gain — it lands at 65.08%, between the baseline and the 300-epoch
+improved result, with malignant recall improving further (0.52→0.61) at the cost of benign recall
+(0.76→0.68). This matches the loss curve directly: D/G loss visibly plateaued past ~epoch 350 (§4's
+mechanism produces its stability gain early and holds it, rather than continuing to compound with more
+training). All three SA configurations show the same underlying precision/recall trade-off pattern
+(synthetic augmentation shifts sensitivity toward malignant at benign's expense); what the architecture
+change adds is a better overall operating point at a moderate epoch count, not immunity from that
+trade-off. The 300-epoch checkpoint, not the most-trained one, is the best result found.
 
 ---
 
@@ -349,12 +357,16 @@ answer to on a different dataset.
 This also shaped how Stage 2 was validated: since the COVID-CXR data landscape is itself the dominant
 confound in this reconstruction, testing an architecture change on that same, still-drifting data would
 not have isolated the variable being tested. Moving validation to CBIS-DDSM (§4.3) — a static, versioned
-benchmark, with a domain-agnostic architecture change (spectral normalization, upsampling kernel/stride) —
-let the training-stability and feature-alignment evidence (§5.2) speak to the mechanism directly. The
-classification result there is promising (first same-session CNN-SA win of the whole project) but still
-carries one open confound (the synthetic class-mix match), and a genuine test of the paper's claim under
-real COVID-CXR data scarcity — rather than merely matched sample count — remains open work, alongside
-whether relaxing the frozen-backbone constraint changes the outcome.
+benchmark, with a domain-agnostic architecture change (spectral normalization, upsampling kernel/stride),
+matched synthetic class composition across every compared run — isolated the architecture as the single
+variable under test. The result (§5.2) is a genuine, first same-session CNN-SA win of the whole project
+at a moderate epoch count (+3.7 points over the baseline architecture), but training the improved
+architecture further does not extend that gain and lands between the baseline and the best result — the
+architecture's benefit is in reaching a better trade-off point sooner, not in removing the underlying
+precision/recall trade-off that synthetic minority-class augmentation produces in every configuration
+tested. A genuine test of the paper's claim under real COVID-CXR data scarcity — rather than merely
+matched sample count — remains open work, alongside whether relaxing the frozen-backbone constraint
+changes the outcome.
 
 ---
 
