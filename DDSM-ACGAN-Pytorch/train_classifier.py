@@ -13,8 +13,16 @@ class and real/synthetic origin.
     python train_classifier.py --manifest data/manifest.csv --mode ad --out-dir runs/cnn_ad
     python train_classifier.py --manifest data/manifest.csv --mode sa \
         --synthetic-dir data/synthetic --out-dir runs/cnn_sa
+
+Stage 2: pass --unfreeze-blocks N (1-5) to fine-tune the top N VGG16 conv
+blocks instead of the paper's fully-frozen backbone, and --head-bn to add
+BatchNorm to the head -- see build_classifier()/Classifier in models.py for
+the rationale. --real-frac subsamples the real training set (stratified,
+--seed-controlled) for data-scarcity ablations; --seed also controls model
+init and data shuffling, for multi-seed runs.
 """
 import argparse
+import random
 from pathlib import Path
 
 import numpy as np
@@ -28,13 +36,38 @@ from ddsm_acgan.metrics import classification_table, plot_confusion_matrix, plot
 from ddsm_acgan.models import build_classifier, count_params, count_trainable_params
 
 
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def subsample_stratified(items, frac: float, seed: int):
+    """Keep `frac` of items per class label, shuffled deterministically by seed."""
+    rng = random.Random(seed)
+    by_label = {}
+    for path, label in items:
+        by_label.setdefault(label, []).append((path, label))
+    kept = []
+    for label, group in by_label.items():
+        rng.shuffle(group)
+        n = max(1, round(len(group) * frac))
+        kept += group[:n]
+    return kept
+
+
 @torch.no_grad()
-def extract_features(model: nn.Sequential, loader, device):
+def extract_features(model: nn.Module, loader, device):
+    """Penultimate-layer (64-d) features: everything in the head up to and
+    including its final activation, excluding Dropout and the last Linear --
+    works whether or not head_bn is enabled since it just drops the head's
+    last layer."""
     model.eval()
     feats, labels = [], []
     for imgs, lbls in loader:
         imgs = imgs.to(device)
-        f = model[:6](imgs)
+        f = model.head[:-1](model.backbone(imgs))
         feats.append(f.cpu().numpy())
         labels.append(lbls.numpy())
     return np.concatenate(feats), np.concatenate(labels)
@@ -53,8 +86,9 @@ def predict(model, loader, device):
 
 
 def run(args):
+    set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
-    print(f"device: {device}  mode: {args.mode}")
+    print(f"device: {device}  mode: {args.mode}  seed: {args.seed}")
 
     wandb = None
     if args.wandb:
@@ -64,6 +98,10 @@ def run(args):
 
     train_items = read_manifest(args.manifest, "train")
     test_items = read_manifest(args.manifest, "test")
+    if args.real_frac < 1.0:
+        before = len(train_items)
+        train_items = subsample_stratified(train_items, args.real_frac, args.seed)
+        print(f"real_frac={args.real_frac}: subsampled train {before} -> {len(train_items)}")
     train_ds = ROIDataset(train_items, image_size=112, value_range="unit")
     test_ds = ROIDataset(test_items, image_size=112, value_range="unit")
 
@@ -84,12 +122,19 @@ def run(args):
     train_loader = DataLoader(combined_train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
 
-    model = build_classifier(num_classes=len(CLASS_NAMES)).to(device)
-    print(f"params: {count_params(model):,} total, {count_trainable_params(model):,} trainable")
+    model = build_classifier(num_classes=len(CLASS_NAMES), unfreeze_blocks=args.unfreeze_blocks,
+                              head_bn=args.head_bn).to(device)
+    print(f"params: {count_params(model):,} total, {count_trainable_params(model):,} trainable "
+          f"(unfreeze_blocks={args.unfreeze_blocks}, head_bn={args.head_bn})")
 
-    optimizer = torch.optim.Adam(
-        (p for p in model.parameters() if p.requires_grad), lr=args.lr, betas=(0.9, 0.999)
-    )
+    if args.unfreeze_blocks > 0:
+        optimizer = torch.optim.Adam(model.param_groups(head_lr=args.lr, backbone_lr=args.backbone_lr),
+                                      betas=(0.9, 0.999))
+        print(f"  differential lr: backbone={args.backbone_lr}  head={args.lr}")
+    else:
+        optimizer = torch.optim.Adam(
+            (p for p in model.parameters() if p.requires_grad), lr=args.lr, betas=(0.9, 0.999)
+        )
     criterion = nn.CrossEntropyLoss()
 
     for epoch in range(args.epochs):
@@ -156,6 +201,7 @@ def run(args):
     print(f"\ndone. artifacts written to {out_dir}")
     if wandb:
         wandb.finish()
+    return {"accuracy": float((labels == preds).mean())}
 
 
 if __name__ == "__main__":
@@ -169,6 +215,19 @@ if __name__ == "__main__":
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--seed", type=int, default=0, help="Controls model init and data shuffling.")
+    ap.add_argument("--real-frac", type=float, default=1.0,
+                     help="Stratified-subsample the real training set to this fraction (data-scarcity "
+                          "ablation). Test set is never subsampled. Default 1.0 = use all real data.")
+    ap.add_argument("--unfreeze-blocks", type=int, default=0,
+                     help="Fine-tune the top N VGG16 conv blocks (0-5) instead of the paper's fully "
+                          "frozen backbone (0). See Classifier in models.py for rationale.")
+    ap.add_argument("--head-bn", action="store_true",
+                     help="Add BatchNorm1d to the classifier head (paired with --unfreeze-blocks to "
+                          "stabilize the larger trainable parameter set).")
+    ap.add_argument("--backbone-lr", type=float, default=1e-5,
+                     help="LR for unfrozen backbone blocks when --unfreeze-blocks > 0 (kept much lower "
+                          "than --lr's head rate to avoid destroying pretrained features too fast).")
     ap.add_argument("--wandb", action="store_true", help="Log to Weights & Biases.")
     ap.add_argument("--wandb-project", default="ddsm-acgan")
     ap.add_argument("--wandb-run-name", default=None, help="Defaults to 'cnn-<mode>'.")

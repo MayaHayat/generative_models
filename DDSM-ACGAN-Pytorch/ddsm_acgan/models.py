@@ -106,23 +106,75 @@ class Discriminator(nn.Module):
         return self.validity_head(feats), self.class_head(feats)
 
 
-def build_classifier(num_classes: int = NUM_CLASSES, pretrained: bool = True) -> nn.Module:
-    """Frozen VGG16 conv base + GlobalAveragePooling -> Dense(64, relu) ->
-    Dropout(0.5) -> Dense(num_classes). Returns raw logits."""
-    weights = VGG16_Weights.IMAGENET1K_V1 if pretrained else None
-    backbone = vgg16(weights=weights).features
-    for param in backbone.parameters():
-        param.requires_grad = False
+# VGG16 `.features` is a flat Sequential of 31 layers grouped into 5 conv
+# blocks by MaxPool boundaries. These are the indices at which each conv
+# block STARTS, so "unfreeze the top k blocks" = make every layer from
+# _BLOCK_START_IDX[-k] onward trainable.
+#   block 1: 0..3     block 2: 5..8     block 3: 10..15
+#   block 4: 17..22   block 5: 24..29
+_BLOCK_START_IDX = [0, 5, 10, 17, 24]
 
-    return nn.Sequential(
-        backbone,
-        nn.AdaptiveAvgPool2d(1),
-        nn.Flatten(),
-        nn.Linear(512, 64),
-        nn.ReLU(inplace=True),
-        nn.Dropout(0.5),
-        nn.Linear(64, num_classes),
-    )
+
+class Classifier(nn.Module):
+    """VGG16 with the top `unfreeze_blocks` conv blocks fine-tuned + an
+    optionally BatchNorm-regularized head. Returns raw logits.
+
+    Rationale (matches the CovidGAN Stage 2 classifier, same architecture
+    family): with the whole backbone frozen (unfreeze_blocks=0, the paper's
+    original design), only the ~33K head params train, so synthetic images
+    can only nudge a small linear boundary on top of fixed ImageNet features
+    -- they can't reshape what the network actually looks at. Unfreezing the
+    top block(s) lets the highest-level (most task-specific) conv features
+    adapt to mammography texture, while lower blocks (generic edge/texture
+    detectors, which transfer reasonably across domains) stay frozen and
+    cheap to train on a modest dataset. head_bn=True adds BatchNorm1d after
+    the head's Dense(64) to stabilize the larger trainable parameter set
+    once blocks are unfrozen.
+    """
+
+    def __init__(self, num_classes: int = NUM_CLASSES, unfreeze_blocks: int = 0,
+                 head_bn: bool = False, pretrained: bool = True):
+        super().__init__()
+        if not 0 <= unfreeze_blocks <= len(_BLOCK_START_IDX):
+            raise ValueError(f"unfreeze_blocks must be 0..{len(_BLOCK_START_IDX)}")
+        self.unfreeze_blocks = unfreeze_blocks
+
+        weights = VGG16_Weights.IMAGENET1K_V1 if pretrained else None
+        self.backbone = vgg16(weights=weights).features
+        for p in self.backbone.parameters():
+            p.requires_grad = False
+        if unfreeze_blocks > 0:
+            start = _BLOCK_START_IDX[-unfreeze_blocks]
+            for idx in range(start, len(self.backbone)):
+                for p in self.backbone[idx].parameters():
+                    p.requires_grad = True
+
+        head_layers = [nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(512, 64)]
+        if head_bn:
+            head_layers.append(nn.BatchNorm1d(64))
+        head_layers += [nn.ReLU(inplace=True), nn.Dropout(0.5), nn.Linear(64, num_classes)]
+        self.head = nn.Sequential(*head_layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.backbone(x))
+
+    def param_groups(self, head_lr: float, backbone_lr: float):
+        """Discriminative-LR optimizer groups: the head trains at head_lr;
+        the unfrozen (pretrained) backbone layers train at the smaller
+        backbone_lr so their ImageNet filters are only gently nudged rather
+        than overwritten by large early gradients."""
+        backbone_params = [p for p in self.backbone.parameters() if p.requires_grad]
+        head_params = [p for p in self.head.parameters() if p.requires_grad]
+        groups = [{"params": head_params, "lr": head_lr}]
+        if backbone_params:
+            groups.append({"params": backbone_params, "lr": backbone_lr})
+        return groups
+
+
+def build_classifier(num_classes: int = NUM_CLASSES, pretrained: bool = True,
+                      unfreeze_blocks: int = 0, head_bn: bool = False) -> Classifier:
+    return Classifier(num_classes=num_classes, unfreeze_blocks=unfreeze_blocks,
+                       head_bn=head_bn, pretrained=pretrained)
 
 
 def count_params(module: nn.Module) -> int:
