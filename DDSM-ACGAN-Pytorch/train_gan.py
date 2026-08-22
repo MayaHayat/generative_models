@@ -22,13 +22,17 @@ from ddsm_acgan.models_improved import ImprovedDiscriminator, ImprovedGenerator
 
 
 def train(args):
+    torch.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
-    print(f"device: {device}  architecture: {'improved' if args.improved else 'baseline'}")
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
+    print(f"device: {device}  architecture: {'improved' if args.improved else 'baseline'}  seed: {args.seed}")
 
     train_items = read_manifest(args.manifest, "train")
     dataset = ROIDataset(train_items, image_size=112, value_range="tanh")
+    shuffle_generator = torch.Generator().manual_seed(args.seed)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
-                         num_workers=args.workers, drop_last=True)
+                         num_workers=args.workers, drop_last=True, generator=shuffle_generator)
     print(f"training images: {len(dataset)}")
 
     if args.improved:
@@ -160,6 +164,12 @@ if __name__ == "__main__":
                           "baseline paper-faithful architecture. Use a separate --out-dir from your "
                           "baseline runs so checkpoints/samples don't mix.")
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--seed", type=int, default=0,
+                     help="Seeds weight init, noise sampling, and data shuffling. Note: matching "
+                          "seeds does not guarantee bit-identical results on GPU -- cuDNN's default "
+                          "algorithm selection and some CUDA ops are non-deterministic by default "
+                          "regardless of seeding (would need torch.use_deterministic_algorithms(True), "
+                          "at a real performance cost, for a full GPU guarantee).")
     ap.add_argument("--wandb", action="store_true", help="Log to Weights & Biases.")
     ap.add_argument("--wandb-project", default="ddsm-acgan")
     ap.add_argument("--wandb-run-name", default=None)
