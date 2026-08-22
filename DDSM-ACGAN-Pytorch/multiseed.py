@@ -61,6 +61,7 @@ def main():
             ns.wandb_project = None
             ns.wandb_run_name = None
             ns.wandb_group = None
+            ns.synthetic_only = False
 
             print(f"\n=== mode={mode} seed={seed} ===")
             result = run_classifier(ns)

@@ -105,6 +105,9 @@ def run(args):
     train_ds = ROIDataset(train_items, image_size=112, value_range="unit")
     test_ds = ROIDataset(test_items, image_size=112, value_range="unit")
 
+    if args.synthetic_only and args.mode != "sa":
+        raise SystemExit("--synthetic-only requires --mode sa (it replaces SA's training set, not AD's)")
+
     synth_ds = None
     if args.mode == "sa":
         if not args.synthetic_dir:
@@ -113,8 +116,17 @@ def run(args):
         if not synth_items:
             raise SystemExit(f"No synthetic images found under {args.synthetic_dir}")
         synth_ds = ROIDataset(synth_items, image_size=112, value_range="unit")
-        combined_train = ConcatDataset([train_ds, synth_ds])
-        print(f"train: {len(train_ds)} real + {len(synth_ds)} synthetic = {len(combined_train)}")
+        if args.synthetic_only:
+            # Fingerprint probe: train on synthetic images ONLY (no real data at all), evaluate on
+            # the real test set. If this generalizes poorly despite good train accuracy, the
+            # synthetic pool carries a learnable GAN-specific signature rather than transferable
+            # pathology -- real_ds is still loaded above (cheap) so the PCA comparison below still
+            # has real features to compare against, it's just excluded from *training*.
+            combined_train = synth_ds
+            print(f"train: {len(synth_ds)} synthetic ONLY (real data excluded -- fingerprint probe)")
+        else:
+            combined_train = ConcatDataset([train_ds, synth_ds])
+            print(f"train: {len(train_ds)} real + {len(synth_ds)} synthetic = {len(combined_train)}")
     else:
         combined_train = train_ds
         print(f"train: {len(train_ds)} real (actual-data only)")
@@ -209,6 +221,13 @@ if __name__ == "__main__":
     ap.add_argument("--manifest", default="data/manifest.csv")
     ap.add_argument("--mode", choices=["ad", "sa"], required=True)
     ap.add_argument("--synthetic-dir", default=None)
+    ap.add_argument("--synthetic-only", action="store_true",
+                     help="Fingerprint probe: with --mode sa, train on the synthetic pool ONLY (no "
+                          "real training images), still evaluated on the real test set. Compares "
+                          "how well different synthetic pools generalize to real data on their own, "
+                          "isolating whether a pool carries a learnable GAN-specific signature "
+                          "rather than transferable pathology (see FINDINGS.md Sec 8.4 for the same "
+                          "probe on CovidGAN).")
     ap.add_argument("--out-dir", default="runs/cnn")
     ap.add_argument("--epochs", type=int, default=25)
     ap.add_argument("--batch-size", type=int, default=16)
