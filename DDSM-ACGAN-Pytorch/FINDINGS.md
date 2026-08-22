@@ -185,8 +185,12 @@ This is the cleanest result in the project. At identical epoch count and identic
 
 **What worked:** both architecture changes produced their predicted, mechanistically-explained effect —
 spectral normalization measurably stabilized training (10–30× lower loss variance), and the kernel/stride
-fix removes the checkerboard artifact by construction. The improved architecture's best classifier result
-(66.93%) is a real, synthetic-mix-matched improvement over the baseline (63.23%).
+fix removes the checkerboard artifact by construction. At matched epochs and matched synthetic
+composition (§5), the improved architecture beats the baseline architecture by +6.9 accuracy points
+(60.05% → 66.93%) and is the only configuration where synthetic augmentation clearly beats real-data-only
+training — the baseline architecture's augmentation *hurts* at the same epoch budget. This is the
+strongest, most controlled result in the project: one variable (architecture) changed, everything else
+held fixed, with a result in the predicted direction.
 
 **What did not fully work:** more training of the improved architecture does not compound the gain — 300
 epochs outperforms 600 on this task, meaning "more stable training" is not the same as "keeps getting
@@ -196,13 +200,16 @@ improved — the architecture change shifts *where* on that trade-off curve you 
 trade-off exists.
 
 **What we learned:** generation-quality improvements (stability, feature alignment) and classification
-improvements are related but not interchangeable evidence — this echoes the same finding independently
-established in the CovidGAN reconstruction (`REPORT.md` §3.6), where a 2× FID improvement produced zero
-downstream classification change. Here, the improved architecture's stability and PCA gains *did*
-translate into a real classification improvement, but only up to a point (300 epochs), and the exact
-mechanism connecting "more stable training" to "better classification at this specific epoch count, not
-beyond" is not yet fully explained — a natural next question once the pending matched-epoch comparison
-(§5) closes out the last open confound.
+improvements are related but not automatically interchangeable evidence — this echoes the same finding
+independently established in the CovidGAN reconstruction (`REPORT.md` §3.6), where a 2× FID improvement
+produced zero downstream classification change. Here, unlike the CovidGAN case, the improved architecture's
+stability and PCA gains *did* translate into a real, matched-epoch classification improvement (§5) — the
+difference being that this classifier is far from the near-ceiling regime CovidGAN's was, so there was
+real headroom for a better-behaved generator to matter. The gain doesn't compound with further training
+(300 beats 600 epochs, §4.5), and the underlying precision/recall trade-off persists in every
+configuration — the architecture change shifts *where* on that trade-off curve you land and makes that
+point reachable reliably (vs. the baseline's instability-dependent, hard-to-reproduce single-epoch
+snapshots), not whether the trade-off exists at all.
 
 ## References
 
