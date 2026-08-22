@@ -332,3 +332,121 @@ demonstrably failed, and it makes a sharp, falsifiable prediction: the baseline 
 near-perfectly separable from real training data, both improved pools measurably less so, and — the
 part that would reconcile §7.1 with §7.3 — ep600's separability should **not** be lower than ep300's.
 If it is lower, §4.2 is in real trouble rather than merely mis-proxied.
+
+---
+
+## 8. The exact runs to do next
+
+Three run sets, in priority order. Set A tests the mechanism, Set B is the prerequisite that makes
+every accuracy number in this project reportable, Set C is cheap bookkeeping. Total ≈ 2 GPU-hours.
+
+Common Colab preamble (paths as in `DDSM_Colab-seed1run.ipynb`):
+
+```bash
+%cd /content/generative_models/DDSM-ACGAN-Pytorch
+!git pull
+
+RUNS=/content/drive/MyDrive/ddsm_acgan_runs
+CKPT_BASE=$RUNS/fixed_gan_mass/checkpoints/ddsm_acgan_final.pt
+CKPT_IMP300=$RUNS/gan_improved_2_mass_only/checkpoints/ddsm_acgan_epoch0300.pt
+CKPT_IMP600=$RUNS/gan_improved_2_mass_only/checkpoints/ddsm_acgan_epoch0600.pt
+```
+
+### Set A — real-vs-synthetic discriminability probe (6 runs, ~15 min)
+
+Uses `realness_probe.py` (added alongside this document). Measures how separable each pool is from
+real training data at the *same* capacity as the classifier whose behavior we are explaining
+(`--unfreeze-blocks 2 --head-bn`), with a held-out split on both sides so the number is generalizable
+separability rather than memorization.
+
+```bash
+for SEED in 0 1; do
+  for POOL in synthetic:baseline synthetic_improved:improved300 synthetic_improved_epoch600:improved600; do
+    DIR=${POOL%%:*}; TAG=${POOL##*:}
+    python realness_probe.py \
+      --manifest data/manifest.csv \
+      --synthetic-dir data/$DIR \
+      --out-dir runs/realness_${TAG}_seed${SEED} \
+      --unfreeze-blocks 2 --head-bn --epochs 15 --seed $SEED \
+      --wandb --wandb-project ddsm-acgan --wandb-group realness \
+      --wandb-run-name realness-${TAG}-seed${SEED}
+  done
+done
+```
+
+**Predictions, stated before the runs so they can fail:**
+
+| Pool | §4.2 predicts AUC | Meaning if observed |
+|---|---|---|
+| baseline ep300 | ≈ 0.98–1.00 | off-manifold, trivially quarantined → explains why it is *harmless and even helpful* in the mixture |
+| improved ep300 | clearly lower | on-manifold, cannot be quarantined → explains the −2.78 reversal |
+| improved ep600 | **not lower than ep300** | required to reconcile §7.1's result with §4.2 |
+
+The falsifier is explicit: **if ep600's AUC comes in below ep300's, §4.2 is wrong**, not mis-proxied —
+that would mean the *less* separable pool is the *better* performing one in the mixture, which is the
+opposite of the mechanism's core claim. Also worth checking: if all three pools land near AUC 1.00,
+the probe cannot discriminate anything and the mechanism is untestable this way.
+
+### Set B — pool-seed variance, the prerequisite from §3 (12 runs, ~1.5 h)
+
+§3 established that the z-draw is worth ~5 accuracy points and §3.1 that the Stage 2 grid holds it at
+n=1. Until this is run, no accuracy comparison in `FINDINGS.md` or `STAGE2_FINDINGS.md` is reportable.
+Generate two *additional* independent draws per pool (the existing pools are the seed-1 draw) and
+re-run the two arms whose difference is the actual finding, classifier seed fixed so only the pool
+varies:
+
+```bash
+for PSEED in 2 3; do
+  python generate_synthetic.py --checkpoint $CKPT_BASE \
+      --out-dir data/pool_base_s$PSEED   --n-benign 300 --n-malignant 300 --seed $PSEED
+  python generate_synthetic.py --checkpoint $CKPT_IMP300 --improved \
+      --out-dir data/pool_imp300_s$PSEED --n-benign 300 --n-malignant 300 --seed $PSEED
+
+  for POOL in base imp300; do
+    python train_classifier.py --manifest data/manifest.csv --mode sa \
+      --synthetic-dir data/pool_${POOL}_s$PSEED \
+      --out-dir runs/poolvar_${POOL}_s$PSEED \
+      --epochs 25 --batch-size 16 --lr 1e-3 \
+      --unfreeze-blocks 2 --head-bn --backbone-lr 1e-5 --seed 1 \
+      --wandb --wandb-project ddsm-acgan --wandb-group poolvar \
+      --wandb-run-name poolvar-${POOL}-pool${PSEED}
+  done
+done
+```
+
+Combined with the existing seed-1 runs (`5y8ju407` baseline 70.63, `tmhjvs29` improved300 67.46) this
+gives **3 independent pool draws per arm at a fixed classifier seed** — enough to put an honest error
+bar on the 4.11-point reversal for the first time. The question it answers: is the baseline-vs-improved
+gap larger than the within-arm pool-draw spread? If not, §4's reversal joins §2's result on the
+retracted pile.
+
+Add a third draw (`PSEED` 4) if the first two disagree in direction.
+
+### Set C — complete the ep600 cell (2 runs, ~8 min)
+
+§7's ep600 comparison is single-seed. One run fills the missing seed-0 cell so it matches every other
+row in the grid; the frozen run keeps the washout check symmetric.
+
+```bash
+python train_classifier.py --manifest data/manifest.csv --mode sa \
+  --synthetic-dir data/synthetic_improved_epoch600 \
+  --out-dir runs/cnn_sa_uf2_improved_gan600_seed0 \
+  --epochs 25 --batch-size 16 --lr 1e-3 \
+  --unfreeze-blocks 2 --head-bn --backbone-lr 1e-5 --seed 0 \
+  --wandb --wandb-project ddsm-acgan --wandb-group exp4 \
+  --wandb-run-name cnn-sa-improved-gan600-uf2-seed_0
+
+python train_classifier.py --manifest data/manifest.csv --mode sa \
+  --synthetic-dir data/synthetic_improved_epoch600 \
+  --out-dir runs/cnn_sa_improved600_seed0 \
+  --epochs 25 --batch-size 16 --lr 1e-3 --seed 0 \
+  --wandb --wandb-project ddsm-acgan --wandb-group exp3 \
+  --wandb-run-name cnn-sa-improved-gan600-seed_0
+```
+
+### What NOT to run yet
+
+The ratio sweep (`STAGE2_FINDINGS.md` §5) and the self-labeling control (§5 item 5 above) are both
+worth doing, but both interpret their result *through* the reversal being real and larger than pool
+noise. Set B decides that. Running them first risks spending a GPU-day characterizing the shape of an
+effect that Set B may show is not resolved.
