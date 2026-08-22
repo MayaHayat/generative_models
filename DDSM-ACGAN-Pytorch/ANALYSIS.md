@@ -203,6 +203,9 @@ the pool that turns out to be *harmless* in the mixture.
 
 Ordered by information gained per GPU-hour.
 
+> **Update:** item 3 has since been run (`u0vf4ipt`, `7yy2seyj`) and its prediction **failed** — see §7,
+> which also re-ranks this list. Item 1 should be read as the unconditional next step.
+
 1. **Real-vs-synthetic discriminability probe.** Train a binary real/fake classifier on each pool
    against the real training set. This directly measures the variable §4.2 proposes. Prediction:
    baseline pool → near-perfect separation; improved pool → measurably lower. Cheap, decisive, and
@@ -244,3 +247,88 @@ for r in wandb.Api().runs("maya-hayat-ariel-university/ddsm-acgan"):
     print(r.id, r.name, r.config.get("seed"), r.summary.get("test_accuracy"))
 PY
 ```
+
+---
+
+## 7. Follow-up: §5 item 3 was run, and falsified §4.2's prediction
+
+*Added after two further runs (`u0vf4ipt`, `7yy2seyj`, 2026-08-22) put the improved ep600 synthetic
+pool into the training mixture — previously it existed only as a synthetic-only probe (`oy40wpcg`).
+Logged here as a failed prediction rather than folded silently back into §4.*
+
+### 7.1 The prediction and the result
+
+§5 item 3 framed this as the decisive test between two accounts: a *signal-quality* account predicted
+the ep600 pool would help in the mixture (it scores far better standalone: 65.08% vs ep300's 59.79%),
+while §4.2's *manifold-overlap* account predicted it would hurt **more**, on the reasoning that further
+GAN training makes the pool more on-manifold and therefore more damaging to the decision boundary.
+
+Seed 1, unfrozen (uf=2), all four arms at the same classifier seed:
+
+| Arm | Run | Standalone probe | train_acc | Test acc |
+|---|---|---|---|---|
+| AD (real only) | `m53jdvq1` | — | 0.9947 | 69.05 |
+| SA, baseline ep300 | `5y8ju407` | 60.05 | 0.9974 | **70.63** |
+| SA, improved ep300 | `tmhjvs29` | 59.79 | 0.9922 | 67.46 |
+| SA, improved ep600 | `7yy2seyj` | 65.08 | 0.9932 | **68.52** |
+
+Frozen (uf=0), seed 1: AD 65.87 / baseline 65.34 / improved ep300 64.02 / **improved ep600 65.61**.
+
+**ep600 − ep300 = +1.06 unfrozen, +1.59 frozen. It helps. §4.2's directional prediction is wrong.**
+
+### 7.2 What specifically broke
+
+Not the mechanism — the proxy. §4.2 assumed "more GAN training → more on-manifold → harder to fit."
+The train_acc figures say the opposite: the ep600 pool is *easier* to fit than ep300 (0.9932 vs
+0.9922), not harder. Epoch count is not a usable stand-in for manifold overlap, and §5 item 3 was
+mis-ranked as "decisive" on the strength of that bad proxy.
+
+### 7.3 What survives
+
+The mechanism's own observable — fit difficulty — still rank-orders all three SA arms correctly, and
+it is the only account that does:
+
+| Ordering by | Result | Matches test accuracy? |
+|---|---|---|
+| Standalone probe signal | ep600 > baseline > ep300 | ✗ |
+| train_acc (fit difficulty) | baseline > ep600 > ep300 | ✓ |
+| *Actual test accuracy* | *baseline (70.63) > ep600 (68.52) > ep300 (67.46)* | — |
+
+The signal-quality account fails on the arm that matters most: the baseline pool is the **worst**
+standalone signal in the project (60.05%, 0.109 malignant recall — a majority-collapsed classifier)
+and simultaneously the **best** in the mixture. "Better synthetic data helps more" cannot accommodate
+that; §4.2's quarantine framing can. So the falsified prediction removes one piece of support for
+§4.2 without installing its rival.
+
+### 7.4 The test was underpowered anyway
+
+The +1.06 unfrozen difference sits **inside** the 1.59-point classifier-seed spread measured for that
+exact arm (65.87 at seed 0, 67.46 at seed 1), at one seed and one pool draw. So ep300-vs-ep600 in the
+mixture is not resolved in either direction. The defensible claim is only the negative one — ep600 does
+not hurt more — which is enough to falsify §4.2's prediction but not enough to establish an
+alternative. This is the same n=1-in-the-dominant-noise-dimension problem §3.1 raises about the rest
+of the grid, and it applies to this follow-up too.
+
+### 7.5 These runs do strengthen the §4 reversal finding
+
+The ep600 pool is a **different generator state sampled with a different z-draw** — a partially
+independent sample against §3.1's objection that the whole Stage 2 grid rested on one pool draw per
+arm. The reversal holds on it:
+
+- **Unfrozen:** baseline 70.63 > AD 69.05 > ep600 68.52 > ep300 67.46. Both improved-GAN pools remain
+  below the baseline-GAN pool *and* below real-data-only.
+- **Frozen:** 65.87 / 65.34 / 64.02 / 65.61 — flat within 1.85 points, no structure, exactly as §4.2's
+  capacity argument predicts.
+
+So the two claims that matter are now supported across two distinct improved-GAN pools rather than
+one: augmentation from the improved GAN underperforms augmentation from the baseline GAN under a
+high-capacity classifier, and the effect disappears entirely under the frozen classifier.
+
+### 7.6 Revised next step
+
+Promote §5 item 1 (**real-vs-synthetic discriminability probe**) to the unconditional next
+experiment. It measures manifold overlap directly instead of through an epoch-count proxy that has now
+demonstrably failed, and it makes a sharp, falsifiable prediction: the baseline pool should be
+near-perfectly separable from real training data, both improved pools measurably less so, and — the
+part that would reconcile §7.1 with §7.3 — ep600's separability should **not** be lower than ep300's.
+If it is lower, §4.2 is in real trouble rather than merely mis-proxied.
