@@ -31,6 +31,7 @@ them load-bearing for the number being meaningful:
    is unbiased at small n and is the number to trust here.
 """
 import argparse
+import copy
 import json
 import random
 from pathlib import Path
@@ -62,15 +63,25 @@ def batches(paths, batch_size):
         yield torch.stack([load_tensor(p) for p in paths[i:i + batch_size]])
 
 
-def evaluate(real_paths, fake_paths, device, batch_size, kid_subset_size, kid_subsets):
+def build_real_metrics(real_paths, device, batch_size, kid_subset_size, kid_subsets, n_fake):
+    """Extract the real set's Inception features ONCE. Sweeping many pools
+    (e.g. a checkpoint-by-checkpoint training curve) otherwise re-runs Inception
+    over the same real images for every pool, which dominates the runtime."""
     fid = FrechetInceptionDistance(feature=2048, normalize=False).to(device)
     kid = KernelInceptionDistance(subsets=kid_subsets,
-                                  subset_size=min(kid_subset_size, len(real_paths), len(fake_paths)),
+                                  subset_size=min(kid_subset_size, len(real_paths), n_fake),
                                   normalize=False).to(device)
     for batch in batches(real_paths, batch_size):
         batch = batch.to(device)
         fid.update(batch, real=True)
         kid.update(batch, real=True)
+    return fid, kid
+
+
+def evaluate(real_metrics, fake_paths, device, batch_size):
+    """Deep-copy the real-side state so each pool is scored against an identical
+    real reference without recomputing it."""
+    fid, kid = (copy.deepcopy(m) for m in real_metrics)
     for batch in batches(fake_paths, batch_size):
         batch = batch.to(device)
         fid.update(batch, real=False)
@@ -123,10 +134,14 @@ def main():
     real_sample = rng.sample(real_paths, n)
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
 
+    print("extracting real-set Inception features (once, shared across pools)...")
+    real_metrics = build_real_metrics(real_sample, device, args.batch_size,
+                                      args.kid_subset_size, args.kid_subsets, n)
+
     results = {}
     for name, paths in pools.items():
-        scores = evaluate(real_sample, random.Random(args.seed).sample(paths, n),
-                          device, args.batch_size, args.kid_subset_size, args.kid_subsets)
+        scores = evaluate(real_metrics, random.Random(args.seed).sample(paths, n),
+                          device, args.batch_size)
         results[name] = scores
         print(f"{name:14} FID={scores['fid']:8.2f}   KID={scores['kid_mean']:.5f} "
               f"+/- {scores['kid_std']:.5f}")
