@@ -78,25 +78,70 @@ Same data, same hyperparameters, only the architecture differs:
 
 ---
 
-## 5. Test 2 — Does the improved architecture make better images? ⚠️ ONLY AT 600 EPOCHS
+## 5. Test 2 — Does the improved architecture make better images? ❌ NO
 
-FID/KID against the real training set, all pools at n=600 (run `nhq3jrms`):
+### 5.1 The full training curve (run `1fzjlyh6`)
 
-| Pool | FID | KID | vs baseline |
-|---|---|---|---|
-| baseline ep300 | 312.10 | 0.319 ± 0.013 | — |
-| improved ep300 | 301.66 | 0.338 ± 0.014 | **tied** (1.0σ, metrics disagree in direction) |
-| **improved ep600** | **210.61** | **0.205 ± 0.016** | **−36%, clear win (5.5σ)** |
+Every saved checkpoint of both architectures, one 600-image pool each, all scored against the same
+real reference at n=600. KID, lower = better:
 
-- ❌ **At ep300 the improved architecture is NOT a better generator.** FID says marginally better,
-  KID says marginally worse, gap is 1.0σ. At n=600 FID is badly biased, so KID is the number to
-  trust — the honest reading is "indistinguishable."
-- ✅ At ep600 it clearly is better: −36% KID, 5.5σ.
-- ⚠️ **ep300 is the checkpoint every headline result in this project used.** Its documented
-  advantages were stability (§4) and PCA overlap — never distributional quality. Now that quality
-  has been measured, it doesn't have an advantage there.
-- 😐 In absolute terms all three are poor (well-trained GANs score FID < 50). None of these
-  generators produce realistic mammography.
+| epoch | 50 | 100 | 150 | 200 | 250 | 300 | 350 | 400 | 450 | 500 | 550 | 600 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **baseline** | 0.370 | 0.377 | 0.215 | 0.184 | **0.165** ⭐ | 0.317 💥 | — | — | — | — | — | — |
+| **improved** | 0.412 | 0.325 | 0.273 | 0.407 | 0.390 | 0.341 | 0.385 | 0.285 | 0.276 | 0.218 | 0.235 | **0.201** |
+
+### 5.2 At matched epochs the baseline wins 5 of 6
+
+| epoch | baseline | improved | winner | σ |
+|---|---|---|---|---|
+| 50 | 0.370 | 0.412 | baseline | 2.0 |
+| 100 | 0.377 | 0.325 | improved | 2.7 |
+| 150 | 0.215 | 0.273 | baseline | 3.0 |
+| 200 | 0.184 | 0.407 | **baseline** | **10.1** |
+| 250 | 0.165 | 0.390 | **baseline** | **9.9** |
+| 300 | 0.317 | 0.341 | baseline (weak) | 1.3 |
+
+**The best generator in the entire project is the paper-faithful baseline at epoch 250**
+(KID 0.165), beating the improved architecture's best (ep600, 0.201) using 350 fewer epochs.
+
+### 5.3 An earlier single-checkpoint comparison got this backwards
+
+A first pass (run `nhq3jrms`) compared baseline **ep300** against improved **ep600** and reported the
+improved architecture winning by −36%, 5.5σ. The curve shows what those two checkpoints actually are:
+
+- baseline ep300 (0.317) = **the baseline's worst checkpoint after epoch 100** — a +92% jump from
+  ep250's 0.165
+- improved ep600 (0.201) = **the improved architecture's best checkpoint**
+
+That comparison was worst-vs-best, not architecture-vs-architecture. ❌ **The −36% quality win is
+retracted.**
+
+Note that `FINDINGS.md` §5's original intuition — that the baseline ep300 checkpoint was "caught
+mid-swing in a bad phase" — turns out to be **correct for generation quality**, even though §6.2
+below shows it is wrong for classification. Right instinct, wrong metric.
+
+### 5.4 Loss stability does not imply output stability
+
+The improved architecture has 10–30× lower *loss* variance (§4) yet its *quality* swings just as
+violently — ep150→200 is a +49% KID jump. The baseline, whose losses oscillate wildly, produced the
+best generator in the project.
+
+**A smooth loss curve carried no information about whether the generator was any good.** This is a
+real and transferable finding.
+
+### 5.5 Single-checkpoint comparisons are unreliable
+
+| Architecture | Biggest swing between adjacent checkpoints (50 epochs apart) |
+|---|---|
+| baseline | **+92%** (ep250→300) |
+| improved | **+49%** (ep150→200) |
+
+Against error bars of only ±0.015. Any conclusion drawn from one checkpoint per architecture is
+measuring where training happened to be sampled — the same failure mode as single pool draws (§6.1)
+and single classifier seeds.
+
+😐 In absolute terms every checkpoint is poor (well-trained GANs score FID < 50). None of these
+generators produces realistic mammography.
 
 ---
 
@@ -186,20 +231,24 @@ is a tie.**
 
 ## 9. Test 5 — The punchline: image quality vs. usefulness
 
-Putting §5 and §7.1 side by side:
+The three pools that have *both* a quality score and a classification result:
 
 | Pool | Image quality (KID) | Classifier accuracy |
 |---|---|---|
-| improved ep600 | 🥇 **best** (0.205) | 🥈 middle (67.60) |
-| baseline | 🥈 middle (0.319) | 🥇 **best** (68.96) |
-| improved ep300 | 🥉 worst (0.338) | 🥉 worst (66.23) |
+| improved ep600 | 🥇 **best** (0.201) | 🥈 middle (67.60) |
+| baseline ep300 | 🥈 middle (0.317) | 🥇 **best** (68.96) |
+| improved ep300 | 🥉 worst (0.341) | 🥉 worst (66.23) |
 
 **The rankings do not match. The best generator is not the best augmenter.**
 
-- **Within** one architecture (ep300→ep600): KID −39.5%, accuracy **+1.37** — they move together.
-- **Across** architectures (baseline→improved ep600): KID −35.8%, accuracy **−1.36** — opposite.
+This decoupling is the finding that has survived every round of re-testing — unlike the architecture
+claims, it has never reversed. It is now *strengthened* by §5: the single best generator in the
+project (baseline ep250, KID 0.165) was never even evaluated for classification, because nothing in
+the project's design connected generation quality to the augmentation question.
 
-A 36% improvement in image quality produced a 1.4-point *loss* in classifier accuracy.
+⚠️ The earlier framing of this section — "a 36% quality improvement produced a 1.4-point accuracy
+loss" — rested on the retracted ep300-vs-ep600 quality comparison (§5.3). The decoupling itself
+stands on the rank mismatch above, which does not depend on that comparison.
 
 ---
 
@@ -239,20 +288,36 @@ transferable signal on their own.**
 
 - **Unfreezing the classifier helps: +3.44 points**, reproduces across seeds. The project's only
   reliable accuracy gain.
-- **The improved GAN architecture trains far more stably** — 10–30× lower loss variance.
-- **The improved GAN at 600 epochs makes clearly better images** — −36% KID, 5.5σ.
+- **The improved GAN architecture trains far more stably** — 10–30× lower *loss* variance.
+- **Loss stability does not imply output quality** — the improved architecture's KID swings as
+  violently as the baseline's despite its smooth loss curve, and the baseline (unstable losses)
+  produced the project's best generator.
 - **Augmentation does not help.** In every configuration tested, real-only matches or beats
   real+synthetic.
-- **Image quality and augmentation value are decoupled** — a 36% quality gain came with a 1.4-point
-  accuracy loss.
-- **Uncontrolled noise-vector sampling was worth ~5 accuracy points**, larger than every effect
-  being studied.
+- **Image quality and augmentation value are decoupled** — quality and accuracy rank differently
+  across pools. The finding that has survived every round of re-testing.
+- **Uncontrolled sampling dominated every comparison** — ~5 accuracy points from the pool draw,
+  and 49–92% KID swings between adjacent checkpoints. Larger than every effect studied.
 
 ### ❌ Retracted
 
-- `FINDINGS.md` §5's +6.9-point matched-epoch win → **−0.52 with seeds**
-- `STAGE2_FINDINGS.md` §2's +1.33-point augmentation win → **−0.09 across 3 pool draws**
+- `FINDINGS.md` §5's +6.9-point matched-epoch win → **−0.52 with seeds** (§6.2)
+- `STAGE2_FINDINGS.md` §2's +1.33-point augmentation win → **−0.09 across 3 pool draws** (§6.3)
+- **The improved architecture's −36% image-quality win** → worst-vs-best checkpoint selection; at
+  matched epochs the baseline wins 5 of 6 (§5.2, §5.3)
 - `ANALYSIS.md` §4.2's "manifold overlap" mechanism — failed three separate tests
+
+### The Stage 2a scorecard
+
+| Claim | Status |
+|---|---|
+| Improved architecture trains more stably (loss variance) | ✅ True |
+| Improved architecture produces better images | ❌ **False** — baseline wins at matched epochs |
+| Improved architecture helps classification | ❌ False |
+
+The honest Stage 2a conclusion: **spectral normalisation + the kernel/stride fix stabilised the loss
+curve and improved neither generation quality nor downstream accuracy.** A clean negative result
+about a well-motivated intervention.
 
 ### 🤷 Unresolved
 
@@ -264,10 +329,10 @@ transferable signal on their own.**
 ## 12. One-sentence version
 
 > On CBIS-DDSM, GAN augmentation does not improve benign/malignant classification in any
-> configuration tested — not because the GAN is bad, but because image quality and downstream
-> usefulness turn out to be unrelated; the only reliable gain came from giving the classifier more
-> capacity, and most previously reported gains were random-sampling noise that had never been
-> measured.
+> configuration tested, and the Stage 2 architecture change stabilised the loss curve without
+> improving either image quality or accuracy — the only reliable gain came from giving the
+> classifier more capacity, and every other reported gain, including our own, turned out to be a
+> single sample from a high-variance process that nobody had measured.
 
 ---
 
