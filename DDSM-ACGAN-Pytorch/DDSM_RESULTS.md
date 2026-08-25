@@ -48,11 +48,18 @@ barely beat the majority-class floor. **All results below post-date both fixes.*
 
 ## 3. The three generators being compared
 
-| Name | Architecture | Epochs | Run ID |
+| Name | Architecture | Epochs | Training run(s), in order |
 |---|---|---|---|
-| **baseline** | Paper-faithful (kernel 5, BatchNorm D) | 300 | `fil0gesf` |
-| **improved ep300** | Spectral-norm D + kernel 4 upsampling | 300 | `62aw102a` |
-| **improved ep600** | Same architecture, trained longer | 600 | `cugo455s` |
+| **baseline** | Paper-faithful (kernel 5, BatchNorm D) | → 900 | `6wf75veh`, `dtuycho9`, *(ep100–300 run deleted)*, `0ju0yqg3` |
+| **improved** | Spectral-norm D + kernel 4 upsampling | → 900 | `stl77do7`, `62aw102a`, `zl9op8ry`, `cugo455s`, `mhg863gg` |
+
+Both were trained incrementally with `--resume`. `--epochs` is a *total*, and checkpoints are named
+by absolute epoch, so no earlier checkpoint was ever overwritten — every checkpoint referenced in
+this document is the state at that exact epoch.
+
+⚠️ The baseline's ep100→300 segment (`fil0gesf`, run name `gan_mass_only`) **was present in W&B on
+2026-08-22 but has since been deleted from the project.** Its checkpoints survive on Drive and
+produced every baseline ≤ep300 result below, but the training-run record is no longer retrievable.
 
 The "improved" architecture makes two changes: **spectral normalisation** on the discriminator
 (bounds its Lipschitz constant, targeting training instability) and **kernel 5→4** in the generator's
@@ -64,12 +71,15 @@ upsampling (removes checkerboard artifacts by construction, since 4÷2 divides e
 
 Same data, same hyperparameters, only the architecture differs:
 
-| | D_loss variability | G_loss variability |
-|---|---|---|
-| Baseline (full 300 epochs) | 0.351 | 0.985 |
-| Baseline (last 50 epochs) | 0.246 | 0.741 |
-| **Improved (epochs 201–300)** | **0.031** | **0.025** |
-| **Improved (epochs 351–600)** | **0.026** | **0.018** |
+| Window | Run | D_loss sd | G_loss sd |
+|---|---|---|---|
+| Baseline, full 300 epochs | `lvv8gjtz` | 0.351 | 0.984 |
+| Baseline, last 50 epochs | `lvv8gjtz` | 0.244 | 0.734 |
+| **Improved, epochs 201–300** | `62aw102a` | **0.031** | **0.025** |
+| **Improved, epochs 351–600** | `cugo455s` | **0.026** | **0.018** |
+
+*(Recomputed directly from each run's logged history. An earlier revision quoted 0.246/0.741 for the
+baseline's last-50 window, carried over from `FINDINGS.md` §3.1; the correct values are 0.244/0.734.)*
 
 - ✅ **10–30× lower loss variance.** Not "looks calmer" — a measured order-of-magnitude reduction.
 - The baseline never settles; it swings 3–6× over 30–80 epoch windows at every epoch count tested.
@@ -80,10 +90,12 @@ Same data, same hyperparameters, only the architecture differs:
 
 ## 5. Test 2 — Does the improved architecture make better images? ⚠️ IT DEPENDS ON WHEN YOU STOP
 
-### 5.1 Full training curve to 900 epochs (runs `1fzjlyh6`, `dasjho3b`)
+### 5.1 Full training curve to 900 epochs (run `dasjho3b`)
 
-Every saved checkpoint of both architectures, one 600-image pool each, scored against the same real
-reference at n=600. KID, lower = better:
+All 36 saved checkpoints (18 per architecture), one 600-image pool each, scored against the same
+real reference at n=600 — every value below comes from the single run `dasjho3b`. KID, lower =
+better. (An earlier partial sweep, `1fzjlyh6`, covers only baseline ≤ep300 and improved ≤ep600 and is
+superseded by this one.)
 
 | epoch | 50 | 100 | 150 | 200 | 250 | 300 | 350 | 400 | 450 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -99,16 +111,16 @@ reference at n=600. KID, lower = better:
 
 | baseline | ep600 | ep650 | ep700 | ep750 | ep800 | ep850 | ep900 |
 |---|---|---|---|---|---|---|---|
-| KID | 0.134 | **0.121** | 0.419 | 0.437 | 0.435 | 0.393 | 0.404 |
-| D_loss | 1.35 | 1.17 | 0.84 | 0.48 | 0.50 | 0.48 | **0.38** |
-| G_loss | 1.76 | 2.32 | 5.11 | 6.87 | 7.44 | 8.76 | **7.81** |
+| KID (`dasjho3b`) | 0.134 | **0.121** | 0.419 | 0.437 | 0.435 | 0.393 | 0.404 |
+| D_loss (`0ju0yqg3`) | 1.35 | 1.17 | 0.84 | 0.48 | 0.50 | 0.48 | **0.38** |
+| G_loss (`0ju0yqg3`) | 1.76 | 2.32 | 5.11 | 6.87 | 7.44 | 8.76 | **7.81** |
 
 **+245% KID in 50 epochs.** The losses show the mechanism: D_loss falls toward zero while G_loss
 climbs — the discriminator overpowers the generator, G's gradients vanish, output collapses. The turn
 is visible at ep684 (D 0.87→0.64, G 2.78→4.37).
 
-The improved architecture over the same span: **D 1.60 → 1.57, G 0.90 → 0.90.** Completely flat. It
-never diverges.
+The improved architecture over the same span (`mhg863gg`): **D 1.60 → 1.57, G 0.90 → 0.90.**
+Completely flat. It never diverges.
 
 ### 5.3 Both pre-committed criteria (agreed before the runs, to avoid cherry-picking)
 
@@ -206,7 +218,7 @@ independent pool draws**, classifier seed held fixed so only the pool varies:
 | Pool draw | baseline SA | improved300 SA |
 |---|---|---|
 | 1 | 70.63 (`5y8ju407`) | 67.46 (`tmhjvs29`) |
-| 2 | 67.46 (`p60qeg51`) | 67.20 (`fte4werz`) |
+| 2 | 67.46 (`p60qeg13`) | 67.20 (`fte4werz`) |
 | 3 | 68.78 (`4cbd3vvk`) | 64.02 (`k8jnco8o`) |
 | **Mean** | **68.96** | **66.23** |
 | AD (real only), same seed | **69.05** (`m53jdvq1`) | — |
@@ -255,21 +267,26 @@ smaller than ~2.65 points as unresolved. AD numbers do not carry this caveat.
 
 ### 7.1 Unfrozen classifier (best current estimates)
 
-| Training data | Accuracy |
-|---|---|
-| **Real only (AD)** | **69.44** |
-| Real + baseline-GAN fakes | 68.96 |
-| Real + improved ep600 fakes | 67.60 |
-| Real + improved ep300 fakes | 66.23 |
+| Training data | Accuracy | Runs averaged |
+|---|---|---|
+| **Real only (AD)** | **69.44** | `un235dfj` 69.84, `m53jdvq1` 69.05 |
+| Real + baseline-GAN fakes | 68.96 | `5y8ju407` 70.63, `p60qeg13` 67.46, `4cbd3vvk` 68.78 |
+| Real + improved ep600 fakes | 67.60 | `k94eo6m9` 66.67, `7yy2seyj` 68.52 |
+| Real + improved ep300 fakes | 66.23 | `tmhjvs29` 67.46, `fte4werz` 67.20, `k8jnco8o` 64.02 |
+
+⚠️ The arms are not sampled identically: AD and the ep600 row vary the **classifier seed** (AD has no
+pool); the baseline and ep300 rows vary the **pool draw** at fixed classifier seed 1. Per §6.1 the
+pool draw is the larger term, so the two three-draw rows carry wider real uncertainty than their
+spread suggests.
 
 ### 7.2 Frozen classifier (the paper's original design)
 
 | Training data | Seed 0 | Seed 1 | Mean |
 |---|---|---|---|
-| **Real only (AD)** | 66.14 | 65.87 | **66.00** |
-| Real + baseline fakes | 65.34 | 65.34 | 65.34 |
-| Real + improved ep300 fakes | 65.61 | 64.02 | 64.81 |
-| Real + improved ep600 fakes | 65.61 | 65.61 | 65.61 |
+| **Real only (AD)** | 66.14 (`5awve1rc`) | 65.87 (`quas5r8e`) | **66.00** |
+| Real + baseline fakes | 65.34 (`430w9r7n`) | 65.34 (`hjozkvn0`) | 65.34 |
+| Real + improved ep300 fakes | 65.61 (`j20fo7ro`) | 64.02 (`m95w4t67`) | 64.81 |
+| Real + improved ep600 fakes | 65.61 (`vto2hoqs`) | 65.61 (`u0vf4ipt`) | 65.61 |
 
 ### 7.3 The decisive test — the best generator from each architecture
 
@@ -305,10 +322,10 @@ is a tie.**
 
 ## 8. Test 4 — Does the classifier capacity change help? ✅ YES
 
-| Classifier | AD accuracy (mean of 2 seeds) |
-|---|---|
-| Frozen (paper's design) | 66.00 |
-| **Unfrozen, top 2 blocks** | **69.44** |
+| Classifier | Seed 0 | Seed 1 | Mean |
+|---|---|---|---|
+| Frozen (paper's design) | 66.14 (`5awve1rc`) | 65.87 (`quas5r8e`) | 66.00 |
+| **Unfrozen, top 2 blocks** | 69.84 (`un235dfj`) | 69.05 (`m53jdvq1`) | **69.44** |
 
 - ✅ **+3.44 points**, consistent at both seeds individually (66.14→69.84, 65.87→69.05).
 - This is the **only** change in the project that reliably improves accuracy — and it has nothing to
