@@ -181,7 +181,7 @@ Every early result ran without fixed seeds. Once seeds were added, results chang
 |---|---|
 | Classifier random seed | up to **1.6 points** |
 | **Which 600 noise vectors formed the pool** | up to **5.3 points** |
-| **Colab session / GPU** (same seed, same pool — see §6.4) | up to **2.65 points** |
+| **Regenerating a seeded pool on another GPU** (§6.4) | up to **2.65 points** |
 
 **No effect anyone was chasing exceeded 5 points.** Results were substantially measuring randomness.
 
@@ -216,11 +216,11 @@ independent pool draws**, classifier seed held fixed so only the pool varies:
   **The noise is bigger than the effect** (t=1.90, p ≈ 0.13). Not established.
 - Direction is consistent though: baseline beats improved in **all 3** paired draws.
 
-### 6.4 Seeding does not give reproducibility *across* Colab sessions
+### 6.4 Seeded synthetic pools are not reproducible across sessions
 
-The best-checkpoint grid (§7.3) was accidentally run three times. Within a single session, repeated
-runs of the same config are **bit-identical**. Across sessions, with the same `--seed`, the same pool
-directory and the same code, they are not:
+The best-checkpoint grid (§7.3) was accidentally run three times, which exposed a third noise source.
+Within a session, repeats are **bit-identical**. Across sessions, with the same `--seed`, same code
+and same pool *directory name*, SA results differ:
 
 | Run name | pass 1 | pass 2 | spread |
 |---|---|---|---|
@@ -229,12 +229,25 @@ directory and the same code, they are not:
 | `sa-base650-uf2-pool3` | 67.20 | 67.99 | 0.79 |
 | `sa-imp750-frozen-pool1/2/3` | — | 62.70 / 64.29 / 61.64 | **0.00** (same-session repeat) |
 
-Cause: cuDNN selects convolution algorithms based on the GPU and library version it finds, and Colab
-allocates a different GPU per session. `torch.use_deterministic_algorithms(True)` would fix it at a
-real performance cost. **Seeding buys within-session reproducibility only.**
+**But AD runs — which read no pool — reproduce exactly, even across different days:**
 
-Consequence for reporting: quote one complete, self-consistent session (§7.3 uses the second pass),
-and treat differences smaller than ~2.65 points as unresolved.
+| Config | 2026-08-22 | 2026-08-25 | Diff |
+|---|---|---|---|
+| AD uf=2, seed 1 | 69.05 (`m53jdvq1`) | 69.05 (`vne7xvub`) | **0.00** |
+| AD frozen, seed 1 | 65.87 (`quas5r8e`) | 65.87 (`d9c1262z`) | **0.00** |
+
+That isolates the cause. Classifier training *is* reproducible across sessions; the drift is entirely
+in the synthetic pool. The runtime crashed at 18:02, `/content` was wiped, and the generation cell's
+`os.path.isdir` guard found no pools and regenerated them — same seed, different GPU, **different
+images**, because cuDNN picks convolution algorithms per device and the generator's forward pass
+inherits that nondeterminism.
+
+> **`generate_synthetic.py --seed N` reproduces a pool only on the machine that made it.** Every pool
+> directory in this project is a one-off artifact. `torch.use_deterministic_algorithms(True)` would
+> fix it, at a real performance cost.
+
+Consequence for reporting: quote pools generated in a single session, and treat SA differences
+smaller than ~2.65 points as unresolved. AD numbers do not carry this caveat.
 
 ---
 
@@ -264,17 +277,26 @@ and treat differences smaller than ~2.65 points as unresolved.
 classification-tested. `imp750` (KID 0.194) is the improved architecture's best. Three independent
 pool draws each, classifier seed fixed at 1 (W&B group `bestckpt`, second pass):
 
-| Arm | pool 1 | pool 2 | pool 3 | mean | sd | vs AD |
+| Arm | draw 1 | draw 2 | draw 3 | mean | sd | vs AD(s1) |
 |---|---|---|---|---|---|---|
-| **AD (real only)** | 69.05 | — | — | **69.05** | — | — |
 | SA `base650` (KID 0.121) | 69.05 | 68.78 | 67.99 | **68.61** | 0.55 | −0.44 |
 | SA `imp750` (KID 0.194) | 67.46 | 67.99 | 67.20 | **67.55** | 0.40 | −1.50 |
+
+**AD reference.** The SA arms all use classifier seed 1, so the matched comparator is AD at seed 1 =
+**69.05** — the most reproducible number in the project, obtained identically in two independent
+sessions three days apart (`m53jdvq1` 08-22, `vne7xvub` 08-25). Across classifier seeds, AD is:
+
+| AD, uf=2 | seed 0 | seed 1 | seed 2 | mean | sd |
+|---|---|---|---|---|---|
+| | 69.84 (`un235dfj`) | 69.05 (`m53jdvq1`/`vne7xvub`) | 70.90 (`zkt37znw`) | **69.93** | 0.93 |
+
+Against the AD *mean* the gaps widen to −1.32 (`base650`) and −2.38 (`imp750`).
 
 Frozen classifier, same pools: AD 65.87, SA `base650` 63.93, SA `imp750` 62.87.
 
 **The best generator in the project still does not beat real-data-only.** This was a pre-registered
-prediction (recorded before the runs) and it held. Both deltas are inside the §6.4 cross-session
-noise band, so the safe reading is *augmentation is neutral-to-negative*, not any specific magnitude.
+prediction (recorded before the runs) and it held. The `base650` gap is inside the §6.4 noise band,
+so the safe reading is *augmentation is neutral-to-negative*, not any specific magnitude.
 
 ➡️ **In both classifier configurations, adding synthetic images never beats real-only. Best case
 is a tie.**
@@ -375,7 +397,8 @@ transferable signal on their own.**
 - **Image quality and augmentation value are decoupled** — a 2.6× KID improvement within one
   architecture changed accuracy by −0.35 points.
 - **Uncontrolled sampling dominated every comparison** — ~5 points from the pool draw, ~2.65 points
-  from the Colab session, and 49–245% KID swings between adjacent checkpoints.
+  from regenerating a seeded pool on a different GPU, and 49–245% KID swings between adjacent
+  checkpoints. Classifier training itself *is* reproducible; the synthetic pools are not (§6.4).
 
 ### ❌ Retracted
 
@@ -384,6 +407,8 @@ transferable signal on their own.**
 - The improved architecture's **−36% image-quality win** → worst-vs-best checkpoint selection (§5.6)
 - The claim that loss stability "carries no information about generator quality" → it predicts
   divergence, just not incremental quality (§5.5)
+- An earlier reading of §6.4 that blamed cross-session *classifier* nondeterminism → AD runs
+  reproduce exactly across sessions; the drift is entirely in seeded pool generation
 - `ANALYSIS.md` §4.2's "manifold overlap" mechanism — failed three separate tests
 
 ### The Stage 2a scorecard
