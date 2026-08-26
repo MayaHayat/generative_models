@@ -240,6 +240,13 @@ and same pool *directory name*, SA results differ:
 | `sa-base650-uf2-pool2` | 69.84 | 68.78 | 1.06 |
 | `sa-base650-uf2-pool3` | 67.20 | 67.99 | 0.79 |
 | `sa-imp750-frozen-pool1/2/3` | — | 62.70 / 64.29 / 61.64 | **0.00** (same-session repeat) |
+| `sa-imp750-uf2-pool1/2/3` | — | 67.46 / 67.99 / 67.20 | **0.00** (same-session repeat) |
+
+The grid ran a third time within the same session as pass 2 (18:27→19:37, no restart). All **six**
+`imp750` runs reproduced bit-identically (`pul7pghm`/`ep0r3gfo`/`a3hx1kbo` vs
+`15aab19e`/`wz3t79no`/`yy0zfud8`, and `sjoszmbl`/`z8zpmnp1`/`npn3qbco` vs
+`ytpur0z5`/`x5dq1v8h`/`zbbxp5ea`). Six exact matches within a session against three mismatches across
+sessions is what pins the diagnosis below.
 
 **But AD runs — which read no pool — reproduce exactly, even across different days:**
 
@@ -261,47 +268,33 @@ inherits that nondeterminism.
 Consequence for reporting: quote pools generated in a single session, and treat SA differences
 smaller than ~2.65 points as unresolved. AD numbers do not carry this caveat.
 
+Calibration note: `base650`'s three-draw *mean* was 67.81 in pass 1 and 68.61 in pass 2 — a 0.80-point
+shift in a mean-of-three from nothing but regenerated pools. Any three-draw estimate in this document
+carries roughly that much slack.
+
 ---
 
 ## 7. Test 3 — Does augmentation help? ❌ NO
 
-### 7.1 Unfrozen classifier (best current estimates)
+### 7.1 The headline test — the best generator from each architecture
 
-| Training data | Accuracy | Runs averaged |
-|---|---|---|
-| **Real only (AD)** | **69.44** | `un235dfj` 69.84, `m53jdvq1` 69.05 |
-| Real + baseline-GAN fakes | 68.96 | `5y8ju407` 70.63, `p60qeg13` 67.46, `4cbd3vvk` 68.78 |
-| Real + improved ep600 fakes | 67.60 | `k94eo6m9` 66.67, `7yy2seyj` 68.52 |
-| Real + improved ep300 fakes | 66.23 | `tmhjvs29` 67.46, `fte4werz` 67.20, `k8jnco8o` 64.02 |
-
-⚠️ The arms are not sampled identically: AD and the ep600 row vary the **classifier seed** (AD has no
-pool); the baseline and ep300 rows vary the **pool draw** at fixed classifier seed 1. Per §6.1 the
-pool draw is the larger term, so the two three-draw rows carry wider real uncertainty than their
-spread suggests.
-
-### 7.2 Frozen classifier (the paper's original design)
-
-| Training data | Seed 0 | Seed 1 | Mean |
-|---|---|---|---|
-| **Real only (AD)** | 66.14 (`5awve1rc`) | 65.87 (`quas5r8e`) | **66.00** |
-| Real + baseline fakes | 65.34 (`430w9r7n`) | 65.34 (`hjozkvn0`) | 65.34 |
-| Real + improved ep300 fakes | 65.61 (`j20fo7ro`) | 64.02 (`m95w4t67`) | 64.81 |
-| Real + improved ep600 fakes | 65.61 (`vto2hoqs`) | 65.61 (`u0vf4ipt`) | 65.61 |
-
-### 7.3 The decisive test — the best generator from each architecture
-
-`base650` (KID 0.121) is the best generator the project ever produced and had never been
-classification-tested. `imp750` (KID 0.194) is the improved architecture's best. Three independent
-pool draws each, classifier seed fixed at 1 (W&B group `bestckpt`, second pass):
+`base650` (KID 0.121) is the best generator the project ever produced. `imp750` (KID 0.194) is the
+improved architecture's best. Neither had been classification-tested until the §5 curve identified
+them. **Three independent pool draws each**, classifier seed fixed at 1 so only the pool varies
+(W&B group `bestckpt`, second pass):
 
 | Arm | draw 1 | draw 2 | draw 3 | mean | sd | vs AD(s1) |
 |---|---|---|---|---|---|---|
-| SA `base650` (KID 0.121) | 69.05 | 68.78 | 67.99 | **68.61** | 0.55 | −0.44 |
-| SA `imp750` (KID 0.194) | 67.46 | 67.99 | 67.20 | **67.55** | 0.40 | −1.50 |
+| **AD (real only)** | 69.05 (`vne7xvub`) | — | — | **69.05** | — | — |
+| SA `base650` (KID 0.121) | 69.05 (`2gzdjtvj`) | 68.78 (`fx8ijyvc`) | 67.99 (`mirxvw6q`) | **68.61** | 0.55 | −0.44 |
+| SA `imp750` (KID 0.194) | 67.46 (`15aab19e`) | 67.99 (`wz3t79no`) | 67.20 (`yy0zfud8`) | **67.55** | 0.40 | −1.50 |
 
-**AD reference.** The SA arms all use classifier seed 1, so the matched comparator is AD at seed 1 =
-**69.05** — the most reproducible number in the project, obtained identically in two independent
-sessions three days apart (`m53jdvq1` 08-22, `vne7xvub` 08-25). Across classifier seeds, AD is:
+The `imp750` row was run twice more in the same session (`pul7pghm`, `ep0r3gfo`, `a3hx1kbo`) and
+reproduced **bit-identically** — 67.46 / 67.99 / 67.20 again.
+
+**AD reference.** The SA arms use classifier seed 1, so the matched comparator is AD at seed 1 =
+**69.05** — the most reproducible figure in the project, obtained identically in two independent
+sessions three days apart (`m53jdvq1` 08-22, `vne7xvub` 08-25). Across classifier seeds:
 
 | AD, uf=2 | seed 0 | seed 1 | seed 2 | mean | sd |
 |---|---|---|---|---|---|
@@ -309,14 +302,46 @@ sessions three days apart (`m53jdvq1` 08-22, `vne7xvub` 08-25). Across classifie
 
 Against the AD *mean* the gaps widen to −1.32 (`base650`) and −2.38 (`imp750`).
 
-Frozen classifier, same pools: AD 65.87, SA `base650` 63.93, SA `imp750` 62.87.
+Frozen classifier, same pools: AD 65.87, SA `base650` 63.93 (`hi1nckfl`, `xkwhrvj7`, `kx1x41u5`),
+SA `imp750` 62.87 (`ytpur0z5`, `x5dq1v8h`, `zbbxp5ea`).
 
 **The best generator in the project still does not beat real-data-only.** This was a pre-registered
-prediction (recorded before the runs) and it held. The `base650` gap is inside the §6.4 noise band,
+prediction — recorded before the runs — and it held. The `base650` gap is inside the §6.4 noise band,
 so the safe reading is *augmentation is neutral-to-negative*, not any specific magnitude.
 
-➡️ **In both classifier configurations, adding synthetic images never beats real-only. Best case
-is a tie.**
+### 7.2 The earlier grid — superseded, retained as quality-range evidence
+
+⚠️ **These are not the best generators.** This grid was built before the §5 training curve existed,
+when `imp300` was believed to be the improved architecture's best (`FINDINGS.md` §4.5) and `base300`
+was simply "the baseline generator." The KID curve later showed `base300` is near the *worst*
+baseline checkpoint after ep100. They are kept because §9.1's controlled decoupling test needs pools
+spanning a wide quality range from the same architecture — not because any of them is a best estimate.
+
+**Unfrozen:**
+
+| Training data | Accuracy | Runs averaged |
+|---|---|---|
+| Real only (AD) | 69.44 | `un235dfj` 69.84, `m53jdvq1` 69.05 |
+| Real + baseline ep300 fakes | 68.96 | `5y8ju407` 70.63, `p60qeg13` 67.46, `4cbd3vvk` 68.78 |
+| Real + improved ep600 fakes | 67.60 | `k94eo6m9` 66.67, `7yy2seyj` 68.52 |
+| Real + improved ep300 fakes | 66.23 | `tmhjvs29` 67.46, `fte4werz` 67.20, `k8jnco8o` 64.02 |
+
+⚠️ The arms are not sampled identically: AD and the ep600 row vary the **classifier seed** (AD has no
+pool); the baseline and ep300 rows vary the **pool draw** at fixed classifier seed 1. Per §6.1 the
+pool draw is the larger term, so the two three-draw rows carry wider real uncertainty than their
+spread suggests. §7.1 does not have this problem — every arm there varies the pool draw.
+
+**Frozen (the paper's original design):**
+
+| Training data | Seed 0 | Seed 1 | Mean |
+|---|---|---|---|
+| Real only (AD) | 66.14 (`5awve1rc`) | 65.87 (`quas5r8e`) | **66.00** |
+| Real + baseline ep300 fakes | 65.34 (`430w9r7n`) | 65.34 (`hjozkvn0`) | 65.34 |
+| Real + improved ep300 fakes | 65.61 (`j20fo7ro`) | 64.02 (`m95w4t67`) | 64.81 |
+| Real + improved ep600 fakes | 65.61 (`vto2hoqs`) | 65.61 (`u0vf4ipt`) | 65.61 |
+
+➡️ **Across both grids and both classifier configurations — including the project's best generator at
+three independent pool draws — adding synthetic images never beats real-only. Best case is a tie.**
 
 ---
 
@@ -466,13 +491,13 @@ to divergence, and neither property translated into classification gains.**
 
 ## Appendix — every W&B run
 
-*All 90 runs in `maya-hayat-ariel-university/ddsm-acgan`, complete. Crashed and duplicate runs are
-included deliberately: several conclusions in this document depend on knowing which runs were
-superseded, and §6.4's cross-session finding is only visible because duplicates exist.*
+*All 91 runs in `maya-hayat-ariel-university/ddsm-acgan`, complete. Crashed and duplicate runs
+are included deliberately: several conclusions depend on knowing which runs were superseded, and
+§6.4's finding is only visible because duplicates exist.*
 
 *Reading note: `frozen` = the paper's original classifier (~33K trainable params); `uf=2` = top two
-VGG16 blocks unfrozen. Test accuracy is on the 378-image real held-out split; the
-always-guess-benign floor is 61.11%.*
+VGG16 blocks unfrozen. Test accuracy is on the 378-image real held-out split; the always-guess-benign
+floor is 61.11%.*
 
 ### A. GAN training runs
 
@@ -561,15 +586,16 @@ always-guess-benign floor is 61.11%.*
 | `z8zpmnp1` | sa-imp750-frozen-pool2 | SA | frozen | 1 | best_imp750_p2 | 0.8149 | **64.29** | 0.605 | 0.667 | finished | 2026-08-25 |
 | `npn3qbco` | sa-imp750-frozen-pool3 | SA | frozen | 1 | best_imp750_p3 | 0.8123 | **61.64** | 0.571 | 0.645 | finished | 2026-08-25 |
 | `pul7pghm` | sa-imp750-uf2-pool1 | SA | uf=2 | 1 | best_imp750_p1 | 0.9953 | **67.46** | 0.714 | 0.649 | finished | 2026-08-25 |
-| `ep0r3gfo` | sa-imp750-uf2-pool2 | SA | uf=2 | 1 | best_imp750_p2 | 0.9995 | **67.99** | 0.694 | 0.671 | running | 2026-08-25 |
+| `ep0r3gfo` | sa-imp750-uf2-pool2 | SA | uf=2 | 1 | best_imp750_p2 | 0.9995 | **67.99** | 0.694 | 0.671 | finished | 2026-08-25 |
+| `a3hx1kbo` | sa-imp750-uf2-pool3 | SA | uf=2 | 1 | best_imp750_p3 | 0.9974 | **67.20** | 0.728 | 0.636 | finished | 2026-08-25 |
 
 ### C. Synthetic-only probes (trained on fakes alone)
 
-| Run ID | Name | Pool | Classifier | Seed | Train acc | Test acc % | Mal recall | Ben recall |
-|---|---|---|---|---|---|---|---|---|
-| `14vh6zaj` | probe-baseline-synth-only | synthetic | uf=2 | 1 | 1.0000 | 60.05 | 0.109 | 0.913 |
-| `1ppw8hwf` | probe-improved-synth-only-epoch300 | synthetic_improved | uf=2 | 1 | 0.9883 | 59.79 | 0.231 | 0.831 |
-| `oy40wpcg` | probe-improved-synth-only-epoch600 | synthetic_improved_epoch600 | uf=2 | 1 | 0.9967 | 65.08 | 0.340 | 0.848 |
+| Run ID | Name | Pool | Seed | Train acc | Test acc % | Mal recall | Ben recall |
+|---|---|---|---|---|---|---|---|
+| `14vh6zaj` | probe-baseline-synth-only | synthetic | 1 | 1.0000 | 60.05 | 0.109 | 0.913 |
+| `1ppw8hwf` | probe-improved-synth-only-epoch300 | synthetic_improved | 1 | 0.9883 | 59.79 | 0.231 | 0.831 |
+| `oy40wpcg` | probe-improved-synth-only-epoch600 | synthetic_improved_epoch600 | 1 | 0.9967 | 65.08 | 0.340 | 0.848 |
 
 ### D. Real-vs-synthetic discriminability probes
 
