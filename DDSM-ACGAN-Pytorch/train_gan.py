@@ -17,6 +17,7 @@ import torchvision.utils as vutils
 from torch.utils.data import DataLoader
 
 from ddsm_acgan.data import ROIDataset, read_manifest
+from ddsm_acgan.diffaugment import DiffAugment
 from ddsm_acgan.models import Discriminator, Generator, count_params
 from ddsm_acgan.models_improved import ImprovedDiscriminator, ImprovedGenerator
 
@@ -41,6 +42,7 @@ def train(args):
     else:
         netG = Generator(noise_std=args.noise_std).to(device)
         netD = Discriminator().to(device)
+    print(f"DiffAugment policy: {args.diffaugment or '(off)'}")
     print(f"latent noise std: {args.noise_std}"
           + ("  (paper default -- noise effectively off)" if args.noise_std <= 0.05 else ""))
     print(f"G params: {count_params(netG):,}  D params: {count_params(netD):,}")
@@ -98,13 +100,13 @@ def train(args):
             fake_target = torch.zeros((bs, 1), device=device)
 
             opt_d.zero_grad()
-            real_validity, real_class = netD(real_imgs)
+            real_validity, real_class = netD(DiffAugment(real_imgs, args.diffaugment))
             d_loss_real = bce(real_validity, real_target) + ce(real_class, real_labels)
 
             z = netG.sample_z(bs, device=device)
             fake_labels = torch.randint(0, 2, (bs,), device=device)
             fake_imgs = netG(fake_labels, z)
-            fake_validity, fake_class = netD(fake_imgs.detach())
+            fake_validity, fake_class = netD(DiffAugment(fake_imgs.detach(), args.diffaugment))
             d_loss_fake = bce(fake_validity, fake_target) + ce(fake_class, fake_labels)
 
             d_loss = d_loss_real + d_loss_fake
@@ -112,7 +114,7 @@ def train(args):
             opt_d.step()
 
             opt_g.zero_grad()
-            validity, pred_class = netD(fake_imgs)
+            validity, pred_class = netD(DiffAugment(fake_imgs, args.diffaugment))
             g_loss = bce(validity, torch.ones((bs, 1), device=device)) + ce(pred_class, fake_labels)
             g_loss.backward()
             opt_g.step()
@@ -141,13 +143,15 @@ def train(args):
             torch.save(
                 {"generator": netG.state_dict(), "discriminator": netD.state_dict(),
                  "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": epoch + 1,
-                 "noise_std": args.noise_std, "improved": args.improved},
+                 "noise_std": args.noise_std, "improved": args.improved,
+                 "diffaugment": args.diffaugment},
                 out_dir / "checkpoints" / f"ddsm_acgan_epoch{epoch+1:04d}.pt",
             )
 
     torch.save({"generator": netG.state_dict(), "discriminator": netD.state_dict(),
                 "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": args.epochs,
-                "noise_std": args.noise_std, "improved": args.improved},
+                "noise_std": args.noise_std, "improved": args.improved,
+                "diffaugment": args.diffaugment},
                out_dir / "checkpoints" / "ddsm_acgan_final.pt")
     print(f"done. final checkpoint: {out_dir / 'checkpoints' / 'ddsm_acgan_final.pt'}")
     if wandb:
@@ -175,6 +179,11 @@ if __name__ == "__main__":
                           "discriminator + kernel=4/stride=2 generator upsampling, instead of the "
                           "baseline paper-faithful architecture. Use a separate --out-dir from your "
                           "baseline runs so checkpoints/samples don't mix.")
+    ap.add_argument("--diffaugment", default="",
+                     help="Comma-separated DiffAugment policy applied identically to real and fake "
+                          "batches before the discriminator (Zhao et al. 2020). Empty = off. "
+                          "Typical: color,translation,cutout. Targets discriminator memorisation on "
+                          "small datasets without capping D's capacity the way spectral norm does.")
     ap.add_argument("--noise-std", type=float, default=0.02,
                      help="Std of the latent noise z. The paper uses 0.02, which is small enough "
                           "that z barely varies and the output is driven by the class label alone "
