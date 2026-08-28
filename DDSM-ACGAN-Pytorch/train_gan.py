@@ -71,6 +71,13 @@ def train(args):
                 f"resuming at a different one silently corrupts training. Retrain from scratch "
                 f"(drop --resume) or pass --noise-std {ckpt_std}."
             )
+        ckpt_da = ckpt.get("diffaugment", "")
+        if ckpt_da != args.diffaugment:
+            raise SystemExit(
+                f"--diffaugment {args.diffaugment!r} does not match the checkpoint's {ckpt_da!r}. "
+                f"Silently changing the augmentation policy mid-run makes the resulting curve "
+                f"uninterpretable. Pass --diffaugment {ckpt_da!r} to continue as trained."
+            )
         start_epoch = ckpt["epoch"]
         print(f"resumed from {args.resume} at epoch {start_epoch}")
         if start_epoch >= args.epochs:
