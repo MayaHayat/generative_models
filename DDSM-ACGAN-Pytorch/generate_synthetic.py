@@ -21,8 +21,15 @@ def generate(args):
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
     if device.type == "cuda":
         torch.cuda.manual_seed_all(args.seed)
-    netG = (ImprovedGenerator() if args.improved else Generator()).to(device)
     ckpt = torch.load(args.checkpoint, map_location=device)
+    # The generator is fitted to the noise scale it trained at, so read it back from the
+    # checkpoint rather than assuming the default; sampling at a different scale is garbage.
+    noise_std = args.noise_std if args.noise_std is not None else ckpt.get("noise_std", 0.02)
+    if "noise_std" not in ckpt:
+        print("note: checkpoint predates --noise-std; assuming the paper default 0.02")
+    print(f"latent noise std: {noise_std}")
+    netG = (ImprovedGenerator(noise_std=noise_std) if args.improved
+            else Generator(noise_std=noise_std)).to(device)
     netG.load_state_dict(ckpt["generator"])
     netG.eval()
 
@@ -55,6 +62,9 @@ if __name__ == "__main__":
                      help="Seeds noise sampling so the same checkpoint+args reproduce the same "
                           "synthetic pool. Without this, every run (even identical args) produces "
                           "different images since the noise draw is otherwise unseeded.")
+    ap.add_argument("--noise-std", type=float, default=None,
+                     help="Override the latent noise std. Default reads it from the checkpoint, "
+                          "which is almost always what you want -- see train_gan.py --noise-std.")
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("--improved", action="store_true",
                      help="Load the Stage 2 improved generator architecture -- must match how the "

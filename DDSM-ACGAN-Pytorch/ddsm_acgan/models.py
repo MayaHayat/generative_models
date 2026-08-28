@@ -29,13 +29,21 @@ EMBED_DIM = 50
 IMAGE_SIZE = 112
 NUM_CLASSES = 2  # benign, malignant
 
+PAPER_NOISE_STD = 0.02
+"""The paper's latent noise scale. At 0.02 the noise vector barely varies, so the
+generator's output is driven almost entirely by the class label rather than by z --
+the condition behind mode collapse and the class-conditioned fingerprint. Kept as the
+default for fidelity to the paper; pass --noise-std 1.0 to train_gan.py to disable it."""
+
 
 class Generator(nn.Module):
     """AC-GAN generator: label + noise -> 112x112x3 image in [-1, 1]."""
 
-    def __init__(self, num_classes: int = NUM_CLASSES, z_dim: int = Z_DIM, embed_dim: int = EMBED_DIM):
+    def __init__(self, num_classes: int = NUM_CLASSES, z_dim: int = Z_DIM, embed_dim: int = EMBED_DIM,
+                 noise_std: float = PAPER_NOISE_STD):
         super().__init__()
         self.z_dim = z_dim
+        self.noise_std = noise_std
 
         self.label_embed = nn.Embedding(num_classes, embed_dim)
         self.label_dense = nn.Linear(embed_dim, 7 * 7 * 1, bias=False)
@@ -71,7 +79,7 @@ class Generator(nn.Module):
         return self.upsample(combined)
 
     def sample_z(self, batch_size: int, device=None) -> torch.Tensor:
-        return torch.randn(batch_size, self.z_dim, device=device) * 0.02
+        return torch.randn(batch_size, self.z_dim, device=device) * self.noise_std
 
 
 class Discriminator(nn.Module):
