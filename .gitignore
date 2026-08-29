@@ -39,3 +39,10 @@ GAN_Medical_Imaging_Paper_Survey.md
 # delivered separately (PDF/Overleaf) and remain on disk and on the
 # analysis branches. Drop this rule to track markdown again.
 *.md
+
+# Report LaTeX sources ship separately, like the markdown above.
+*.tex
+
+# Report bundle leftovers: Overleaf figure copies (duplicates of
+# stage2/results/figures/) and the report text dump.
+CovidGAN-Pytorch/docs/
