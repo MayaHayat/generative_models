@@ -4,3 +4,9 @@ numpy
 pillow
 scikit-learn
 matplotlib
+# FID in evaluate_fid.py (torchmetrics.image.fid.FrechetInceptionDistance)
+torchmetrics
+# evaluate_fid.py points SSL_CERT_FILE at certifi's bundle before torchmetrics
+# downloads the pretrained InceptionV3 weights; macOS python.org builds ship
+# without a usable CA bundle and the download fails without it.
+certifi
