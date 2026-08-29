@@ -17,6 +17,7 @@ import torchvision.utils as vutils
 from torch.utils.data import DataLoader
 
 from ddsm_acgan.data import ROIDataset, read_manifest
+from ddsm_acgan.diffaugment import DiffAugment
 from ddsm_acgan.models import Discriminator, Generator, count_params
 from ddsm_acgan.models_improved import ImprovedDiscriminator, ImprovedGenerator
 
@@ -36,11 +37,14 @@ def train(args):
     print(f"training images: {len(dataset)}")
 
     if args.improved:
-        netG = ImprovedGenerator().to(device)
+        netG = ImprovedGenerator(noise_std=args.noise_std).to(device)
         netD = ImprovedDiscriminator().to(device)
     else:
-        netG = Generator().to(device)
+        netG = Generator(noise_std=args.noise_std).to(device)
         netD = Discriminator().to(device)
+    print(f"DiffAugment policy: {args.diffaugment or '(off)'}")
+    print(f"latent noise std: {args.noise_std}"
+          + ("  (paper default -- noise effectively off)" if args.noise_std <= 0.05 else ""))
     print(f"G params: {count_params(netG):,}  D params: {count_params(netD):,}")
 
     opt_g = torch.optim.Adam(netG.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
@@ -59,6 +63,21 @@ def train(args):
         else:
             print("warning: checkpoint has no optimizer state (pre-resume-support checkpoint) -- "
                   "Adam state restarts fresh, weights still resume correctly.")
+        ckpt_std = ckpt.get("noise_std", 0.02)
+        if abs(ckpt_std - args.noise_std) > 1e-9:
+            raise SystemExit(
+                f"--noise-std {args.noise_std} does not match the checkpoint's {ckpt_std}. "
+                f"The generator's first dense layer is fitted to a specific noise scale; "
+                f"resuming at a different one silently corrupts training. Retrain from scratch "
+                f"(drop --resume) or pass --noise-std {ckpt_std}."
+            )
+        ckpt_da = ckpt.get("diffaugment", "")
+        if ckpt_da != args.diffaugment:
+            raise SystemExit(
+                f"--diffaugment {args.diffaugment!r} does not match the checkpoint's {ckpt_da!r}. "
+                f"Silently changing the augmentation policy mid-run makes the resulting curve "
+                f"uninterpretable. Pass --diffaugment {ckpt_da!r} to continue as trained."
+            )
         start_epoch = ckpt["epoch"]
         print(f"resumed from {args.resume} at epoch {start_epoch}")
         if start_epoch >= args.epochs:
@@ -88,13 +107,13 @@ def train(args):
             fake_target = torch.zeros((bs, 1), device=device)
 
             opt_d.zero_grad()
-            real_validity, real_class = netD(real_imgs)
+            real_validity, real_class = netD(DiffAugment(real_imgs, args.diffaugment))
             d_loss_real = bce(real_validity, real_target) + ce(real_class, real_labels)
 
             z = netG.sample_z(bs, device=device)
             fake_labels = torch.randint(0, 2, (bs,), device=device)
             fake_imgs = netG(fake_labels, z)
-            fake_validity, fake_class = netD(fake_imgs.detach())
+            fake_validity, fake_class = netD(DiffAugment(fake_imgs.detach(), args.diffaugment))
             d_loss_fake = bce(fake_validity, fake_target) + ce(fake_class, fake_labels)
 
             d_loss = d_loss_real + d_loss_fake
@@ -102,7 +121,7 @@ def train(args):
             opt_d.step()
 
             opt_g.zero_grad()
-            validity, pred_class = netD(fake_imgs)
+            validity, pred_class = netD(DiffAugment(fake_imgs, args.diffaugment))
             g_loss = bce(validity, torch.ones((bs, 1), device=device)) + ce(pred_class, fake_labels)
             g_loss.backward()
             opt_g.step()
@@ -130,12 +149,16 @@ def train(args):
         if (epoch + 1) % args.checkpoint_every == 0 or epoch == args.epochs - 1:
             torch.save(
                 {"generator": netG.state_dict(), "discriminator": netD.state_dict(),
-                 "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": epoch + 1},
+                 "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": epoch + 1,
+                 "noise_std": args.noise_std, "improved": args.improved,
+                 "diffaugment": args.diffaugment},
                 out_dir / "checkpoints" / f"ddsm_acgan_epoch{epoch+1:04d}.pt",
             )
 
     torch.save({"generator": netG.state_dict(), "discriminator": netD.state_dict(),
-                "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": args.epochs},
+                "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(), "epoch": args.epochs,
+                "noise_std": args.noise_std, "improved": args.improved,
+                "diffaugment": args.diffaugment},
                out_dir / "checkpoints" / "ddsm_acgan_final.pt")
     print(f"done. final checkpoint: {out_dir / 'checkpoints' / 'ddsm_acgan_final.pt'}")
     if wandb:
@@ -163,6 +186,18 @@ if __name__ == "__main__":
                           "discriminator + kernel=4/stride=2 generator upsampling, instead of the "
                           "baseline paper-faithful architecture. Use a separate --out-dir from your "
                           "baseline runs so checkpoints/samples don't mix.")
+    ap.add_argument("--diffaugment", default="",
+                     help="Comma-separated DiffAugment policy applied identically to real and fake "
+                          "batches before the discriminator (Zhao et al. 2020). Empty = off. "
+                          "Typical: color,translation,cutout. Targets discriminator memorisation on "
+                          "small datasets without capping D's capacity the way spectral norm does.")
+    ap.add_argument("--noise-std", type=float, default=0.02,
+                     help="Std of the latent noise z. The paper uses 0.02, which is small enough "
+                          "that z barely varies and the output is driven by the class label alone "
+                          "-- the condition behind mode collapse and the class fingerprint. Pass 1.0 "
+                          "to switch the noise back on. Checkpoints record this value and "
+                          "generate_synthetic.py reads it back, since sampling at a different scale "
+                          "than the model was trained at produces garbage.")
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("--seed", type=int, default=0,
                      help="Seeds weight init, noise sampling, and data shuffling. Note: matching "

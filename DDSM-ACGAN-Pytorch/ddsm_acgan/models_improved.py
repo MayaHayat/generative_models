@@ -29,15 +29,19 @@ EMBED_DIM = 50
 IMAGE_SIZE = 112
 NUM_CLASSES = 2  # benign, malignant
 
+from ddsm_acgan.models import PAPER_NOISE_STD  # noqa: E402  (shared default, see models.py)
+
 
 class ImprovedGenerator(nn.Module):
     """Same label/noise conditioning as the baseline Generator; upsampling
     uses kernel=4/stride=2 transpose convs (checkerboard-artifact-free)
     instead of kernel=5/stride=2."""
 
-    def __init__(self, num_classes: int = NUM_CLASSES, z_dim: int = Z_DIM, embed_dim: int = EMBED_DIM):
+    def __init__(self, num_classes: int = NUM_CLASSES, z_dim: int = Z_DIM, embed_dim: int = EMBED_DIM,
+                 noise_std: float = PAPER_NOISE_STD):
         super().__init__()
         self.z_dim = z_dim
+        self.noise_std = noise_std
 
         self.label_embed = nn.Embedding(num_classes, embed_dim)
         self.label_dense = nn.Linear(embed_dim, 7 * 7 * 1, bias=False)
@@ -75,7 +79,7 @@ class ImprovedGenerator(nn.Module):
         return self.upsample(combined)
 
     def sample_z(self, batch_size: int, device=None) -> torch.Tensor:
-        return torch.randn(batch_size, self.z_dim, device=device) * 0.02
+        return torch.randn(batch_size, self.z_dim, device=device) * self.noise_std
 
 
 class ImprovedDiscriminator(nn.Module):
