@@ -12,3 +12,25 @@ medSynthesisV1-generative_models/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Reference paper PDFs — third-party published works, kept locally only
+covid gans.pdf
+Medical Image Synthesis with Context-Aware.pdf
+
+# Course/assignment instructions — not part of the submission
+FinalProjectPart2.pdf
+
+# Personal research notes (paper-selection survey) — not part of the submission
+GAN_Medical_Imaging_Paper_Survey.md
+
+# Trained model weights — too large for git, regenerate with train_gan.py
+**/weights/
+
+# macOS
+.DS_Store
+
+# Claude Code local state (includes a full worktree checkout)
+.claude/
+
+# IDE
+.idea/
