@@ -132,6 +132,27 @@ def build_classifier(num_classes: int = NUM_CLASSES, pretrained: bool = True) ->
     )
 
 
+def pick_device(prefer: str = "auto") -> torch.device:
+    """Choose the compute device.
+
+    'auto' (default) prefers an NVIDIA GPU (CUDA), then an Apple-silicon GPU
+    (MPS / Metal, e.g. the M-series Macs), then falls back to CPU. Pass an
+    explicit 'cuda' / 'mps' / 'cpu' to force one.
+
+    The training scripts previously only checked for CUDA, so on a Mac they
+    silently ran on the CPU even though the M-series GPU was available; this
+    lets them use MPS instead.
+    """
+    if prefer != "auto":
+        return torch.device(prefer)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    mps = getattr(torch.backends, "mps", None)
+    if mps is not None and mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 def count_params(module: nn.Module) -> int:
     return sum(p.numel() for p in module.parameters())
 

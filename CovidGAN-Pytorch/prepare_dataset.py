@@ -14,6 +14,17 @@ Any of --ieee-covid-root, --extra-covid-dir, --normal-dir may be repeated /
 omitted; at minimum you need some COVID-CXR source and some Normal-CXR
 source. The paper used 403 COVID-CXR + 721 Normal-CXR after merging three
 public sources and de-duplicating -- see README.md for where to get them.
+
+The default multi-source collection draws COVID and Normal from *different*
+datasets, which lets a classifier exploit cross-source artifacts (resolution,
+borders, text, brightness) instead of lung pathology and inflates accuracy.
+Pass --same-source-root instead to draw both classes from ONE dataset's
+per-class subfolders (e.g. the Kaggle Radiography Database's COVID/ + Normal/),
+as an A/B to measure how much of the accuracy is real signal vs. source bias:
+
+    python prepare_dataset.py \
+        --same-source-root /path/to/COVID-19_Radiography_Dataset \
+        --max-covid 403 --max-normal 721 --out-dir data
 """
 import argparse
 import csv
@@ -25,6 +36,7 @@ from covidgan.data import (
     dedupe,
     load_ieee_covid_chestxray,
     load_image_folder,
+    load_same_source,
     stratified_split,
 )
 
@@ -37,6 +49,16 @@ def main():
                      help="Flat folder of additional COVID-CXR images.")
     ap.add_argument("--normal-dir", action="append", default=[],
                      help="Flat folder of Normal-CXR images (e.g. Kaggle Radiography Database 'Normal' class).")
+    ap.add_argument("--same-source-root", action="append", default=[],
+                     help="Root of a SINGLE dataset that ships per-class subfolders (e.g. the Kaggle "
+                          "COVID-19 Radiography Database, with COVID/ and Normal/ under one root). Both "
+                          "classes are collected from here with one processing pipeline, removing the "
+                          "cross-source shortcut that inflates accuracy. Repeatable; combines with the "
+                          "other sources if you pass them too.")
+    ap.add_argument("--covid-subdir", default="COVID",
+                     help="Per-class COVID subfolder name under --same-source-root (default: COVID).")
+    ap.add_argument("--normal-subdir", default="Normal",
+                     help="Per-class Normal subfolder name under --same-source-root (default: Normal).")
     ap.add_argument("--out-dir", default="data", help="Where to write manifest.csv")
     ap.add_argument("--test-covid", type=int, default=72, help="Paper default: 72")
     ap.add_argument("--test-normal", type=int, default=120, help="Paper default: 120")
@@ -62,6 +84,13 @@ def main():
     normal_paths = []
     for d in args.normal_dir:
         normal_paths += load_image_folder(d)
+
+    for root in args.same_source_root:
+        ss_covid, ss_normal = load_same_source(root, args.covid_subdir, args.normal_subdir)
+        print(f"Same-source root {root}: {len(ss_covid)} COVID-CXR, {len(ss_normal)} Normal-CXR "
+              f"(both from {args.covid_subdir}/ and {args.normal_subdir}/, one pipeline).")
+        covid_paths += ss_covid
+        normal_paths += ss_normal
 
     if not covid_paths:
         raise SystemExit("No COVID-CXR images found -- pass --ieee-covid-root and/or --extra-covid-dir.")

@@ -77,6 +77,28 @@ def load_image_folder(root: str) -> List[Path]:
     )
 
 
+def load_same_source(root: str, covid_subdir: str = "COVID",
+                     normal_subdir: str = "Normal") -> Tuple[List[Path], List[Path]]:
+    """Collect COVID-CXR and Normal-CXR paths from a SINGLE dataset root that
+    ships per-class subfolders (e.g. the Kaggle COVID-19 Radiography Database's
+    COVID/ and Normal/ directories).
+
+    Drawing both classes from one source -- with one acquisition and
+    post-processing pipeline -- removes the cross-source shortcut that
+    otherwise lets a classifier separate the classes on non-pathological cues
+    (resolution, borders, embedded text, brightness curves) instead of lung
+    pathology. Use this as an A/B against the default multi-source collection
+    to measure how much of the accuracy is source bias rather than signal.
+
+    Returns (covid_paths, normal_paths). Both are gathered with the same
+    load_image_folder() collector, so mask/label subfolders are skipped.
+    """
+    root = Path(root)
+    covid = load_image_folder(root / covid_subdir)
+    normal = load_image_folder(root / normal_subdir)
+    return covid, normal
+
+
 # --------------------------------------------------------------------------
 # Deduplication
 # --------------------------------------------------------------------------
@@ -155,19 +177,27 @@ def stratified_split(
 class CXRDataset(Dataset):
     """Wraps a list of (path, label) pairs. `value_range` picks the pixel
     scaling: GAN training normalizes to [-1, 1] (Sec. III-B), the classifier
-    normalizes to [0, 1] (Sec. II-B)."""
+    normalizes to [0, 1] (Sec. II-B).
+
+    `cache=True` decodes and resizes every image into RAM once at construction
+    time, so each training epoch reads pre-made tensors instead of re-opening
+    and LANCZOS-resizing each file again. The datasets here are tiny (~1k
+    images, ~140 MB as 112x112x3 float32), so this fits comfortably in memory
+    and removes the per-epoch image-decoding bottleneck that otherwise starves
+    the GPU."""
 
     def __init__(self, items: Sequence[Tuple[Path, int]], image_size: int = 112,
-                 value_range: str = "tanh"):
+                 value_range: str = "tanh", cache: bool = False):
         assert value_range in ("tanh", "unit")
         self.items = list(items)
         self.image_size = image_size
         self.value_range = value_range
+        self._cache = [self._load(i) for i in range(len(self.items))] if cache else None
 
     def __len__(self):
         return len(self.items)
 
-    def __getitem__(self, idx):
+    def _load(self, idx):
         path, label = self.items[idx]
         img = Image.open(path).convert("RGB").resize(
             (self.image_size, self.image_size), Image.LANCZOS
@@ -176,6 +206,15 @@ class CXRDataset(Dataset):
         if self.value_range == "tanh":
             arr = arr * 2.0 - 1.0
         return arr, label
+
+    def __getitem__(self, idx):
+        # getattr guard: an instance built before caching existed (e.g. kept
+        # alive across a Jupyter autoreload) won't have `_cache` in its dict,
+        # and must not crash -- fall back to loading from disk.
+        cache = getattr(self, "_cache", None)
+        if cache is not None:
+            return cache[idx]
+        return self._load(idx)
 
 
 def read_manifest(manifest_path: str, split: str) -> List[Tuple[Path, int]]:

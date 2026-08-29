@@ -42,7 +42,26 @@ def classification_table(y_true: Sequence[int], y_pred: Sequence[int],
     lines.append(
         f"{'weighted avg':<12}{weighted[0]:>10.2f}{weighted[1]:>10.2f}{weighted[2]:>10.2f}{sum(support):>10d}"
     )
-    lines.append(f"\naccuracy: {accuracy:.2%}")
+    total = int(cm.sum())
+    correct = int(np.trace(cm))
+
+    lines.append("")
+    lines.append("confusion matrix (rows = true, cols = predicted):")
+    lines.append(f"{'':<12}" + "".join(f"{name:>10}" for name in class_names))
+    for i, name in enumerate(class_names):
+        lines.append(f"{name:<12}" + "".join(f"{cm[i, j]:>10d}" for j in labels))
+
+    lines.append("")
+    lines.append(f"{'class':<12}{'TP':>8}{'FP':>8}{'FN':>8}{'TN':>8}")
+    for i, name in enumerate(class_names):
+        tp = int(cm[i, i])
+        fp = int(cm[:, i].sum() - cm[i, i])
+        fn = int(cm[i, :].sum() - cm[i, i])
+        tn = total - tp - fp - fn
+        lines.append(f"{name:<12}{tp:>8}{fp:>8}{fn:>8}{tn:>8}")
+
+    lines.append("")
+    lines.append(f"accuracy: {accuracy:.2%}  (= {correct}/{total} correct)")
     return "\n".join(lines)
 
 

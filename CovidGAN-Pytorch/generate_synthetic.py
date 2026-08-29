@@ -13,11 +13,14 @@ import torch
 import torchvision.utils as vutils
 
 from covidgan.data import COVID_LABEL, NORMAL_LABEL
-from covidgan.models import Generator
+from covidgan.models import Generator, pick_device
 
 
 def generate(args):
-    device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    torch.manual_seed(args.seed)
+    device = pick_device("cpu" if args.cpu else args.device)
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
     netG = Generator().to(device)
     ckpt = torch.load(args.checkpoint, map_location=device)
     netG.load_state_dict(ckpt["generator"])
@@ -48,5 +51,12 @@ if __name__ == "__main__":
     ap.add_argument("--n-covid", type=int, default=1669)
     ap.add_argument("--n-normal", type=int, default=1399)
     ap.add_argument("--batch-size", type=int, default=64)
-    ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--seed", type=int, default=0,
+                     help="Seeds noise sampling so the same checkpoint+args reproduce the same "
+                          "synthetic pool. Without this, every run (even identical args) produces "
+                          "different images since the noise draw is otherwise unseeded.")
+    ap.add_argument("--device", default="auto",
+                     help="auto (cuda > mps > cpu), or force cuda / mps / cpu. "
+                          "'mps' uses the Apple-silicon GPU on M-series Macs.")
+    ap.add_argument("--cpu", action="store_true", help="Force CPU (shorthand for --device cpu).")
     generate(ap.parse_args())

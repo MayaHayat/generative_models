@@ -1,5 +1,24 @@
 data/
+data_src/
 runs/
 _smoketest_*/
 __pycache__/
 *.pyc
+
+# macOS
+.DS_Store
+
+# Local-only notebook (uses the local checkout, not the GitHub clone)
+notebooks/CovidGAN_Local_SameSource.ipynb
+
+# Course/assignment instructions (not part of the submission repo)
+docs/assignment/PinalProjectPart2.pdf
+
+# Personal research notes (paper-selection survey, not part of the submission)
+docs/references/GAN_Medical_Imaging_Paper_Survey.md
+
+# Reference paper PDF (DiffAugment, arXiv:2103.05094)
+docs/references/2103.05094v1.pdf
+
+# IDE
+.idea/

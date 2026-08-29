@@ -27,7 +27,7 @@ from torch.utils.data import ConcatDataset, DataLoader
 
 from covidgan.data import CLASS_NAMES, CXRDataset, make_synthetic_items, read_manifest
 from covidgan.metrics import classification_table, plot_confusion_matrix, plot_pca
-from covidgan.models import build_classifier, count_params, count_trainable_params
+from covidgan.models import build_classifier, count_params, count_trainable_params, pick_device
 
 
 @torch.no_grad()
@@ -55,13 +55,13 @@ def predict(model, loader, device):
 
 
 def run(args):
-    device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    device = pick_device("cpu" if args.cpu else args.device)
     print(f"device: {device}  mode: {args.mode}")
 
     train_items = read_manifest(args.manifest, "train")
     test_items = read_manifest(args.manifest, "test")
-    train_ds = CXRDataset(train_items, image_size=112, value_range="unit")
-    test_ds = CXRDataset(test_items, image_size=112, value_range="unit")
+    train_ds = CXRDataset(train_items, image_size=112, value_range="unit", cache=args.cache)
+    test_ds = CXRDataset(test_items, image_size=112, value_range="unit", cache=args.cache)
 
     synth_ds = None
     if args.mode == "sa":
@@ -70,15 +70,17 @@ def run(args):
         synth_items = make_synthetic_items(args.synthetic_dir)
         if not synth_items:
             raise SystemExit(f"No synthetic images found under {args.synthetic_dir}")
-        synth_ds = CXRDataset(synth_items, image_size=112, value_range="unit")
+        synth_ds = CXRDataset(synth_items, image_size=112, value_range="unit", cache=args.cache)
         combined_train = ConcatDataset([train_ds, synth_ds])
         print(f"train: {len(train_ds)} real + {len(synth_ds)} synthetic = {len(combined_train)}")
     else:
         combined_train = train_ds
         print(f"train: {len(train_ds)} real (actual-data only)")
 
-    train_loader = DataLoader(combined_train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
-    test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    # With images already decoded in RAM, worker processes only add overhead.
+    workers = 0 if args.cache else args.workers
+    train_loader = DataLoader(combined_train, batch_size=args.batch_size, shuffle=True, num_workers=workers)
+    test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=workers)
 
     model = build_classifier(num_classes=len(CLASS_NAMES)).to(device)
     print(f"params: {count_params(model):,} total, {count_trainable_params(model):,} trainable")
@@ -144,6 +146,13 @@ if __name__ == "__main__":
     ap.add_argument("--epochs", type=int, default=25)
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--workers", type=int, default=2)
-    ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--workers", type=int, default=2,
+                     help="DataLoader worker processes (ignored when --cache is on).")
+    ap.add_argument("--device", default="auto",
+                     help="auto (cuda > mps > cpu), or force cuda / mps / cpu. "
+                          "'mps' uses the Apple-silicon GPU on M-series Macs.")
+    ap.add_argument("--cache", action=argparse.BooleanOptionalAction, default=True,
+                     help="Preload+resize all images into RAM once (default on; the dataset is "
+                          "tiny). Use --no-cache to decode from disk every epoch.")
+    ap.add_argument("--cpu", action="store_true", help="Force CPU (shorthand for --device cpu).")
     run(ap.parse_args())
