@@ -4,6 +4,8 @@ numpy
 pillow
 scikit-learn
 matplotlib
-# FID/KID in fid_kid_eval.py
+# FID/KID in fid_kid_eval.py; certifi supplies the CA bundle for its
+# pretrained-InceptionV3 download on macOS.
 torchmetrics
+certifi
 wandb

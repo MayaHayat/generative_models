@@ -33,8 +33,18 @@ them load-bearing for the number being meaningful:
 import argparse
 import copy
 import json
+import os
 import random
 from pathlib import Path
+
+import certifi
+
+# macOS python.org builds ship without a usable CA bundle, so torchmetrics'
+# download of the pretrained InceptionV3 weights fails with
+# "SSL: CERTIFICATE_VERIFY_FAILED". Point urllib at certifi's bundle *before*
+# any weight download happens -- mirrors CovidGAN-Pytorch/evaluate_fid.py.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 import numpy as np
 import torch
