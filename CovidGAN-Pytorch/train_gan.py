@@ -28,16 +28,21 @@ from covidgan.models import Discriminator, Generator, count_params, pick_device
 
 
 def train(args):
+    torch.manual_seed(args.seed)
     device = pick_device("cpu" if args.cpu else args.device)
-    print(f"device: {device}")
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
+    print(f"device: {device}  seed: {args.seed}")
 
     train_items = read_manifest(args.manifest, "train")
     dataset = CXRDataset(train_items, image_size=112, value_range="tanh", cache=args.cache)
     # With the whole dataset already decoded in RAM, worker processes only add
     # inter-process copying overhead, so load in-process when cached.
     workers = 0 if args.cache else args.workers
+    shuffle_generator = torch.Generator().manual_seed(args.seed)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
-                         num_workers=workers, drop_last=True)
+                         num_workers=workers, drop_last=True,
+                         generator=shuffle_generator)
     print(f"training images: {len(dataset)}"
           + (" (cached in RAM)" if args.cache else ""))
 
@@ -151,6 +156,12 @@ if __name__ == "__main__":
                      help="Preload+resize all images into RAM once (default on; the dataset is "
                           "tiny). Use --no-cache to decode from disk every epoch.")
     ap.add_argument("--cpu", action="store_true", help="Force CPU (shorthand for --device cpu).")
+    ap.add_argument("--seed", type=int, default=0,
+                     help="Seeds weight init, latent/label sampling, and data shuffling. Note: "
+                          "matching seeds does not guarantee bit-identical results on GPU -- cuDNN's "
+                          "default algorithm selection and some CUDA ops are non-deterministic "
+                          "regardless of seeding, and the same applies on MPS. A run resumed with "
+                          "--resume restarts the RNG stream rather than continuing the original one.")
     ap.add_argument("--resume", default=None,
                      help="Path to a checkpoint (e.g. runs/gan/checkpoints/covidgan_epoch0100.pt) to "
                           "resume from: restores generator/discriminator + optimizer state and continues "
