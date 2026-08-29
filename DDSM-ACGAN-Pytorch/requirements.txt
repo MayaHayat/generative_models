@@ -4,4 +4,6 @@ numpy
 pillow
 scikit-learn
 matplotlib
+# FID/KID in fid_kid_eval.py
+torchmetrics
 wandb

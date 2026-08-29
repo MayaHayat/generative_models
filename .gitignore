@@ -39,6 +39,8 @@ GAN_Medical_Imaging_Paper_Survey.md
 # delivered separately (PDF/Overleaf) and remain on disk and on the
 # analysis branches. Drop this rule to track markdown again.
 *.md
+# ...except the READMEs, which document the code and do ship.
+!README.md
 
 # Report LaTeX sources ship separately, like the markdown above.
 *.tex
