@@ -34,3 +34,8 @@ GAN_Medical_Imaging_Paper_Survey.md
 
 # IDE
 .idea/
+
+# Submission branch carries code only. Reports, findings and READMEs are
+# delivered separately (PDF/Overleaf) and remain on disk and on the
+# analysis branches. Drop this rule to track markdown again.
+*.md
